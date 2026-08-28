@@ -283,6 +283,24 @@ if [ -d "$LINKS_DIR" ]; then
   echo "entrypoint: persistent state symlinks installed from $LINKS_DIR"
 fi
 
+# --- Ensure workspace symlink exists ---
+if [ -d /workspace-state/workspace ] && [ ! -e /home/vscode/workspace ]; then
+  ln -sf /workspace-state/workspace /home/vscode/workspace 2>/dev/null || true
+  echo "entrypoint: created workspace symlink -> /workspace-state/workspace"
+fi
+
+# --- Ensure paseo is on PATH (nvm-managed, not in /usr/local/bin) ---
+PASEO_BIN=$(find /usr/local/share/nvm/versions/node -name paseo -type f 2>/dev/null | head -1)
+if [ -n "$PASEO_BIN" ] && [ ! -f /usr/local/bin/paseo ]; then
+  ln -sf "$PASEO_BIN" /usr/local/bin/paseo 2>/dev/null || true
+  echo "entrypoint: linked paseo to /usr/local/bin"
+fi
+
+# --- Ensure brew is on PATH ---
+if [ -x /home/linuxbrew/.linuxbrew/bin/brew ] && [ ! -f /usr/local/bin/brew ]; then
+  ln -sf /home/linuxbrew/.linuxbrew/bin/brew /usr/local/bin/brew 2>/dev/null || true
+fi
+
 # --- Start Paseo daemon (only if paseo feature is present) ---
 PASEO_PID=""
 # Source nvm so paseo is on PATH
