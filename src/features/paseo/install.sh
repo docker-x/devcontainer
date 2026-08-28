@@ -12,7 +12,7 @@ if ! command -v npm &> /dev/null; then
 fi
 
 # Install Paseo CLI globally
-if [ "$VERSION" = "latest" ]; then
+if [[ "$VERSION" == "latest" ]]; then
     npm install -g @getpaseo/cli
 else
     npm install -g @getpaseo/cli@"$VERSION"
@@ -22,40 +22,58 @@ fi
 if command -v paseo &> /dev/null; then
     echo "Paseo CLI installed: $(paseo --version 2>&1 || echo 'version check skipped')"
 else
-    echo "Warning: paseo not found on PATH after installation" >&2
+    echo "Error: paseo not found on PATH after installation" >&2
+    exit 1
 fi
 
 # Create .paseo directory in user home if it doesn't exist
-# NOTE: Do NOT create ~/.paseo as a real directory. The openshift-compat
-# entrypoint will symlink it to /workspace-state/.paseo (PVC) at runtime.
-# Creating it here as a real dir would prevent the symlink from working.
 REMOTE_USER="${_REMOTE_USER:-${_CONTAINER_USER:-root}}"
 REMOTE_USER_HOME="${_REMOTE_USER_HOME:-$(getent passwd "$REMOTE_USER" 2>/dev/null | cut -d: -f6)}"
+REMOTE_USER_HOME="${REMOTE_USER_HOME:-/home/vscode}"
 
-# Set up PASEO_HOME in /etc/profile.d so CLI and daemon share state
-echo 'export PASEO_HOME=/workspace-state/.paseo' > /etc/profile.d/paseo-home.sh
+# Create .paseo directory and set PASEO_HOME to the PVC-backed path
+mkdir -p "${REMOTE_USER_HOME}/.paseo"
+
+echo "export PASEO_HOME=${REMOTE_USER_HOME}/.paseo" > /etc/profile.d/paseo-home.sh
 chmod 0644 /etc/profile.d/paseo-home.sh
-grep -q PASEO_HOME /etc/environment 2>/dev/null || echo 'PASEO_HOME=/workspace-state/.paseo' >> /etc/environment
+grep -q PASEO_HOME /etc/environment 2>/dev/null || echo "PASEO_HOME=${REMOTE_USER_HOME}/.paseo" >> /etc/environment
 
 echo "Paseo CLI installed successfully!"
 
-# Final permission fix: ensure /home/vscode is group-writable by group 0
-# for OpenShift random UID compatibility. Other features create files as
-# UID 1000:GID 1000; this fixes them so the runtime UID (in group 0) can access.
-echo "Paseo: fixing /home/vscode permissions for OpenShift compatibility"
-chgrp -R 0 /home/vscode 2>/dev/null || true
-chmod -R g+rwX /home/vscode 2>/dev/null || true
+# Permission fix: only fix permissions on paseo-specific dirs, not all of /home/vscode
+echo "Paseo: fixing permissions for OpenShift compatibility"
+for dir in /home/vscode/.paseo /home/vscode/.config/environment.d /home/vscode/.agents; do
+  if [ -d "$dir" ]; then
+    chgrp -R 0 "$dir" 2>/dev/null || true
+    chmod -R g+rwX "$dir" 2>/dev/null || true
+  fi
+done
+# Make /home/vscode itself group-traversable but not group-writable
+chgrp 0 /home/vscode 2>/dev/null || true
 chmod 2775 /home/vscode 2>/dev/null || true
 
-# Also fix /usr/local/bin so runtime entrypoint can create symlinks
-chgrp 0 /usr/local/bin 2>/dev/null || true
-chmod g+w /usr/local/bin 2>/dev/null || true
-
-# Fix /etc/profile.d so runtime entrypoint can write profile scripts
-chgrp 0 /etc/profile.d 2>/dev/null || true
-chmod g+w /etc/profile.d 2>/dev/null || true
+# Create a runtime-writable bin dir instead of making /usr/local/bin group-writable
+RUNTIME_BIN="/usr/local/share/runtime-bin"
+mkdir -p "$RUNTIME_BIN"
+chgrp 0 "$RUNTIME_BIN" 2>/dev/null || true
+chmod g+w "$RUNTIME_BIN" 2>/dev/null || true
+# Add to PATH via profile.d
+echo 'export PATH="/usr/local/share/runtime-bin:$PATH"' > /etc/profile.d/runtime-bin.sh
+chmod 0644 /etc/profile.d/runtime-bin.sh
 
 # Fix /usr/local/share/agent-config so runtime UID can write to config dirs
 # (devin, claude, codex, opencode, kilo, gascity, herdr symlinks point here)
 chgrp -R 0 /usr/local/share/agent-config 2>/dev/null || true
 chmod -R g+rwX /usr/local/share/agent-config 2>/dev/null || true
+
+# Defer permission fix to runtime via profile.d, so it catches dirs created by later features
+cat > /etc/profile.d/paseo-perms.sh << 'PERMEOF'
+# Fix permissions on agent-config dirs at shell startup (catches dirs created after paseo install)
+for dir in "$HOME/.paseo" "$HOME/.agents" "$HOME/.config/environment.d"; do
+  if [ -d "$dir" ]; then
+    chgrp -R 0 "$dir" 2>/dev/null || true
+    chmod -R g+rwX "$dir" 2>/dev/null || true
+  fi
+done
+PERMEOF
+chmod 0644 /etc/profile.d/paseo-perms.sh

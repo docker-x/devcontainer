@@ -30,8 +30,10 @@ Add the feature to your `devcontainer.json`:
 
 1. Installs the `@getpaseo/cli` npm package globally via `npm install -g`.
 2. Verifies the `paseo` binary is available on `PATH`.
-3. Creates a `~/.paseo` directory in the remote user's home and chowns it to
-   that user so Paseo can persist configuration and state across rebuilds.
+3. Sets `PASEO_HOME` to `~/.paseo` via `/etc/profile.d` and `/etc/environment`
+   so the CLI and daemon share state. Persistence across container rebuilds
+   requires a PVC-backed home directory (e.g. via the `openshift-compat` feature
+   or a devcontainer volume mount on `~/.paseo`).
 
 ## Requirements
 
