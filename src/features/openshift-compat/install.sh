@@ -86,10 +86,14 @@ cat > /usr/local/bin/sudo << 'SUDOEOF'
 #!/bin/bash
 # Fake sudo for OpenShift restricted SCC compatibility
 # Handles query flags that installers use to check sudo availability
-if [[ "$1" == "-n" || "$1" == "-nl" || "$1" == "-ln" ]]; then
-    # sudo -n / -nl / -ln: list privileges non-interactively
+if [[ "$1" == "-nl" || "$1" == "-ln" ]]; then
+    # sudo -nl / -ln: list privileges non-interactively
     # Return success with no output to indicate we "can" run commands
     exit 0
+elif [[ "$1" == "-n" ]]; then
+    # sudo -n <command>: non-interactive sudo, just run the command
+    shift
+    exec "$@"
 elif [[ "$1" == "-v" ]]; then
     # sudo -v: validate credentials
     exit 0
@@ -122,6 +126,10 @@ ln -sf /home/vscode /home/pepl
 # --- Pre-install DevPod agent binary ---
 if [ "$INSTALL_DEVPOD_AGENT" = "true" ]; then
   echo "openshift-compat: pre-installing DevPod agent binary"
+  # Ensure curl and tar are available (base image may not have them)
+  if ! command -v curl >/dev/null 2>&1; then
+    apt-get update -y && apt-get install -y curl tar && rm -rf /var/lib/apt/lists/*
+  fi
   mkdir -p /home/vscode/.local/bin
   DEVPOD_URL="https://github.com/loft-sh/devpod/releases/latest/download/devpod_Linux_x86_64.tar.gz"
   curl -fsSL "$DEVPOD_URL" -o /tmp/devpod.tar.gz

@@ -7,7 +7,6 @@ VERSION=${VERSION:-"latest"}
 
 REMOTE_USER="${_REMOTE_USER:-${_CONTAINER_USER:-root}}"
 REMOTE_USER_HOME="${_REMOTE_USER_HOME:-$(getent passwd "$REMOTE_USER" 2>/dev/null | cut -d: -f6)}"
-REMOTE_USER_HOME="${REMOTE_USER_HOME:-$(eval echo ~$REMOTE_USER)}"
 AGENT_DIR="${AGENT_CONFIG_DIR:-/usr/local/share/agent-config}/herdr"
 
 echo "Installing Herdr (version: ${VERSION})..."
@@ -26,7 +25,7 @@ if command -v npm &> /dev/null; then
     if [[ "$VERSION" == "latest" || -z "$VERSION" ]]; then
         npm install -g herdr
     else
-        npm install -g "herdr@${VERSION}"
+        npm install -g herdr@"${VERSION}"
     fi
     NPM_RC=$?
     set -e
@@ -40,8 +39,17 @@ fi
 
 if [[ $HERDR_INSTALLED -eq 0 ]]; then
     set +e
-    curl -fsSL https://herdr.ai/install.sh | bash
+    curl -fsSL https://herdr.ai/install.sh -o /tmp/herdr-install.sh
     CURL_RC=$?
+    set -e
+    if [[ $CURL_RC -ne 0 ]]; then
+        rm -f /tmp/herdr-install.sh
+        echo "Error: Herdr install script download failed (exit ${CURL_RC}) and npm was unavailable" >&2
+        exit 1
+    fi
+    bash /tmp/herdr-install.sh --version "${VERSION:-latest}"
+    CURL_RC=$?
+    rm -f /tmp/herdr-install.sh
     set -e
     if [[ $CURL_RC -ne 0 ]]; then
         echo "Error: Herdr install script failed (exit ${CURL_RC}) and npm was unavailable" >&2
@@ -68,7 +76,7 @@ echo "Herdr copied to /usr/local/bin/herdr"
 # Shared agent config
 mkdir -p "$AGENT_DIR"
 if id -u "$REMOTE_USER" >/dev/null 2>&1; then
-    chown -R "$REMOTE_USER:$REMOTE_USER" "$AGENT_DIR"
+    chown -R "$REMOTE_USER:" "$AGENT_DIR"
 fi
 
 if [ -d "$REMOTE_USER_HOME" ]; then
@@ -80,7 +88,7 @@ if [ -d "$REMOTE_USER_HOME" ]; then
         mkdir -p "$parent"
         rm -f "$target"
         if id -u "$REMOTE_USER" >/dev/null 2>&1; then
-            chown "$REMOTE_USER:$REMOTE_USER" "$parent" 2>/dev/null || true
+            chown "$REMOTE_USER:" "$parent" 2>/dev/null || true
             su -s /bin/bash - "$REMOTE_USER" -c "ln -sfn '$AGENT_DIR' '$target'" 2>/dev/null || true
         else
             ln -sfn "$AGENT_DIR" "$target"

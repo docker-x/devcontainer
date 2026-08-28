@@ -7,7 +7,6 @@ VERSION=${VERSION:-"latest"}
 
 REMOTE_USER="${_REMOTE_USER:-${_CONTAINER_USER:-root}}"
 REMOTE_USER_HOME="${_REMOTE_USER_HOME:-$(getent passwd "$REMOTE_USER" 2>/dev/null | cut -d: -f6)}"
-REMOTE_USER_HOME="${REMOTE_USER_HOME:-$(eval echo ~$REMOTE_USER)}"
 AGENT_DIR="${AGENT_CONFIG_DIR:-/usr/local/share/agent-config}/codex"
 
 echo "Installing OpenAI Codex CLI (version: ${VERSION})..."
@@ -26,7 +25,7 @@ fi
 if [[ "$VERSION" == "latest" || -z "$VERSION" ]]; then
     npm install -g @openai/codex
 else
-    npm install -g "@openai/codex@${VERSION}"
+    npm install -g @openai/codex@"${VERSION}"
 fi
 
 # Locate the installed binary and copy it to /usr/local/bin for system-wide access
@@ -49,7 +48,7 @@ echo "Codex CLI copied to /usr/local/bin/codex"
 # Shared agent config
 mkdir -p "$AGENT_DIR"
 if id -u "$REMOTE_USER" >/dev/null 2>&1; then
-    chown -R "$REMOTE_USER:$REMOTE_USER" "$AGENT_DIR"
+    chown -R "$REMOTE_USER:" "$AGENT_DIR"
 fi
 
 if [ -d "$REMOTE_USER_HOME" ]; then
@@ -61,7 +60,7 @@ if [ -d "$REMOTE_USER_HOME" ]; then
         mkdir -p "$parent"
         rm -f "$target"
         if id -u "$REMOTE_USER" >/dev/null 2>&1; then
-            chown "$REMOTE_USER:$REMOTE_USER" "$parent" 2>/dev/null || true
+            chown "$REMOTE_USER:" "$parent" 2>/dev/null || true
             su -s /bin/bash - "$REMOTE_USER" -c "ln -sfn '$AGENT_DIR' '$target'" 2>/dev/null || true
         else
             ln -sfn "$AGENT_DIR" "$target"
