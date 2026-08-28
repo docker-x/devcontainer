@@ -1,6 +1,6 @@
 {
   "id": "paseo",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "name": "Paseo CLI",
   "description": "Install Paseo CLI - local-first AI development environment with daemon, web UI, and agent orchestration.",
   "documentationURL": "https://getpaseo.sh",

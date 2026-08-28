@@ -45,3 +45,7 @@ echo "Paseo: fixing /home/vscode permissions for OpenShift compatibility"
 chgrp -R 0 /home/vscode 2>/dev/null || true
 chmod -R g+rwX /home/vscode 2>/dev/null || true
 chmod 2775 /home/vscode 2>/dev/null || true
+
+# Also fix /usr/local/bin so runtime entrypoint can create symlinks
+chgrp 0 /usr/local/bin 2>/dev/null || true
+chmod g+w /usr/local/bin 2>/dev/null || true
