@@ -300,10 +300,10 @@ fi
 # The daemon sets PASEO_HOME=/workspace-state/.paseo, but the CLI (and SSH
 # sessions) need it too, otherwise they look in ~/.paseo (empty) and don't
 # see the daemon's projects/agents/history.
-echo 'export PASEO_HOME=/workspace-state/.paseo' > /etc/profile.d/paseo-home.sh
-chmod 0644 /etc/profile.d/paseo-home.sh
+echo 'export PASEO_HOME=/workspace-state/.paseo' > /etc/profile.d/paseo-home.sh 2>/dev/null || true
+chmod 0644 /etc/profile.d/paseo-home.sh 2>/dev/null || true
 # Also set in /etc/environment for non-login shells
-grep -q PASEO_HOME /etc/environment 2>/dev/null || echo 'PASEO_HOME=/workspace-state/.paseo' >> /etc/environment
+grep -q PASEO_HOME /etc/environment 2>/dev/null || echo 'PASEO_HOME=/workspace-state/.paseo' >> /etc/environment 2>/dev/null || true
 echo "entrypoint: set PASEO_HOME=/workspace-state/.paseo globally"
 
 # --- Replace empty /home/vscode/.paseo dir with symlink to PVC ---

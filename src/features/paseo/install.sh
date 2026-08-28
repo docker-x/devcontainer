@@ -50,3 +50,7 @@ chmod 2775 /home/vscode 2>/dev/null || true
 # Also fix /usr/local/bin so runtime entrypoint can create symlinks
 chgrp 0 /usr/local/bin 2>/dev/null || true
 chmod g+w /usr/local/bin 2>/dev/null || true
+
+# Fix /etc/profile.d so runtime entrypoint can write profile scripts
+chgrp 0 /etc/profile.d 2>/dev/null || true
+chmod g+w /etc/profile.d 2>/dev/null || true
