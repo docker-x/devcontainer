@@ -22,11 +22,28 @@ SKILLS_STR="${SKILLS:-}"
 IFS=',' read -ra SKILLS <<< "${SKILLS_STR}"
 
 REMOTE_USER="${_REMOTE_USER:-${_CONTAINER_USER:-vscode}}"
-HOME_DIR="/home/${REMOTE_USER}"
+HOME_DIR="${_REMOTE_USER_HOME:-$(getent passwd "$REMOTE_USER" 2>/dev/null | cut -d: -f6)}"
+HOME_DIR="${HOME_DIR:-/home/${REMOTE_USER}}"
 
 echo "agent-skills: installer=${INSTALLER} scope=${SCOPE} copy=${COPY}"
 echo "agent-skills: skills=${SKILLS[*]}"
 echo "agent-skills: agents=${AGENTS}"
+
+# SCOPE=project is not meaningful during image build (no project context)
+if [[ "${SCOPE}" == "project" ]]; then
+  echo "agent-skills: WARNING — SCOPE=project is not meaningful during image build (no project directory). Use SCOPE=home for build-time installs."
+  echo "agent-skills: Continuing with SCOPE=home"
+  SCOPE="home"
+fi
+
+# Run a command as the remote user (for home-scoped installs)
+run_as_user() {
+  if [[ "$REMOTE_USER" == "root" ]]; then
+    "$@"
+  else
+    su -s /bin/bash - "$REMOTE_USER" -c "$*"
+  fi
+}
 
 # Convert copy boolean
 if [[ "${COPY}" == "true" ]]; then
@@ -37,7 +54,7 @@ fi
 
 # Determine scope flag
 if [[ "${SCOPE}" == "home" ]]; then
-  NPX_SCOPE="--home"
+  NPX_SCOPE="--global"
   GH_SCOPE="--scope user"
 else
   NPX_SCOPE="--project"
@@ -56,23 +73,40 @@ else
   done
 fi
 
+FAILED_COUNT=0
+
 # Install a repo via npx (works for repos with bin/skills.js wrapper)
 install_via_npx() {
   local repo="$1"
   echo "agent-skills: installing ${repo} via npx"
-  npx "github:${repo}" ${NPX_SCOPE} ${COPY_FLAG} --yes 2>&1 || {
-    echo "agent-skills: WARNING — npx install failed for ${repo}, trying gh skill"
-    install_via_gh "${repo}"
-  }
+  if [[ "${SCOPE}" == "home" ]]; then
+    HOME="${HOME_DIR}" run_as_user npx "github:${repo}" ${NPX_SCOPE} ${COPY_FLAG} --yes 2>&1 || {
+      echo "agent-skills: WARNING — npx install failed for ${repo}, trying gh skill"
+      install_via_gh "${repo}"
+    }
+  else
+    npx "github:${repo}" ${NPX_SCOPE} ${COPY_FLAG} --yes 2>&1 || {
+      echo "agent-skills: WARNING — npx install failed for ${repo}, trying gh skill"
+      install_via_gh "${repo}"
+    }
+  fi
 }
 
 # Install a repo via gh skill (works for any repo with SKILL.md files)
 install_via_gh() {
   local repo="$1"
   echo "agent-skills: installing ${repo} via gh skill"
-  gh skill install "${repo}" --all ${GH_SCOPE} ${GH_AGENT_FLAG} --force 2>&1 || {
-    echo "agent-skills: WARNING — gh skill install failed for ${repo}, continuing"
-  }
+  if [[ "${SCOPE}" == "home" ]]; then
+    HOME="${HOME_DIR}" run_as_user gh skill install "${repo}" ${GH_SCOPE} ${GH_AGENT_FLAG} ${COPY_FLAG} --force 2>&1 || {
+      echo "agent-skills: WARNING — gh skill install failed for ${repo}, continuing"
+      FAILED_COUNT=$((FAILED_COUNT + 1))
+    }
+  else
+    gh skill install "${repo}" ${GH_SCOPE} ${GH_AGENT_FLAG} ${COPY_FLAG} --force 2>&1 || {
+      echo "agent-skills: WARNING — gh skill install failed for ${repo}, continuing"
+      FAILED_COUNT=$((FAILED_COUNT + 1))
+    }
+  fi
 }
 
 # Auto-detect: try npx first (for repos with bin/skills.js), fall back to gh skill
@@ -80,11 +114,20 @@ install_auto() {
   local repo="$1"
   echo "agent-skills: installing ${repo} (auto-detect)"
   # Try npx first — repos with bin/skills.js will work
-  if npx "github:${repo}" ${NPX_SCOPE} ${COPY_FLAG} --yes 2>&1; then
-    echo "agent-skills: ${repo} installed via npx"
+  if [[ "${SCOPE}" == "home" ]]; then
+    if HOME="${HOME_DIR}" run_as_user npx "github:${repo}" ${NPX_SCOPE} ${COPY_FLAG} --yes 2>&1; then
+      echo "agent-skills: ${repo} installed via npx"
+    else
+      echo "agent-skills: npx failed for ${repo}, falling back to gh skill"
+      install_via_gh "${repo}"
+    fi
   else
-    echo "agent-skills: npx failed for ${repo}, falling back to gh skill"
-    install_via_gh "${repo}"
+    if npx "github:${repo}" ${NPX_SCOPE} ${COPY_FLAG} --yes 2>&1; then
+      echo "agent-skills: ${repo} installed via npx"
+    else
+      echo "agent-skills: npx failed for ${repo}, falling back to gh skill"
+      install_via_gh "${repo}"
+    fi
   fi
 }
 
@@ -117,18 +160,33 @@ for pkg in "${SKILLS[@]}"; do
   esac
 done
 
-# Ensure ~/.agents/skills is accessible to the remote user
-if [[ -d "${HOME_DIR}/.agents/skills" ]]; then
-  chown -R "${REMOTE_USER}:${REMOTE_USER}" "${HOME_DIR}/.agents" 2>/dev/null || true
+# Check if any installs failed
+if [[ ${FAILED_COUNT} -gt 0 ]] && [[ ${FAILED_COUNT} -eq ${#SKILLS[@]} ]]; then
+  echo "agent-skills: ERROR — all skill installations failed" >&2
+  exit 1
+fi
+
+# Determine the skills directory based on scope
+if [[ "${SCOPE}" == "project" ]]; then
+  SKILLS_DIR="./.agents/skills"
+else
+  SKILLS_DIR="${HOME_DIR}/.agents/skills"
+fi
+
+# Ensure skills directory is accessible to the remote user
+if [[ -d "${SKILLS_DIR}" ]]; then
+  if [[ "${SCOPE}" != "project" ]]; then
+    chown -R "${REMOTE_USER}:${REMOTE_USER}" "${HOME_DIR}/.agents" 2>/dev/null || true
+  fi
 fi
 
 # Verify installation
-SKILL_COUNT=$(find "${HOME_DIR}/.agents/skills" -maxdepth 1 -type d 2>/dev/null | wc -l)
+SKILL_COUNT=$(find "${SKILLS_DIR}" -maxdepth 1 -type d 2>/dev/null | wc -l)
 SKILL_COUNT=$((SKILL_COUNT - 1))  # subtract the directory itself
 if [[ ${SKILL_COUNT} -gt 0 ]]; then
-  echo "agent-skills: ${SKILL_COUNT} skills installed to ${HOME_DIR}/.agents/skills/"
+  echo "agent-skills: ${SKILL_COUNT} skills installed to ${SKILLS_DIR}/"
 else
-  echo "agent-skills: WARNING — no skills found in ${HOME_DIR}/.agents/skills/"
+  echo "agent-skills: WARNING — no skills found in ${SKILLS_DIR}/"
 fi
 
 echo "agent-skills: done"
