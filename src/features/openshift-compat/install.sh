@@ -305,6 +305,8 @@ set +e
 echo 'export PASEO_HOME=/workspace-state/.paseo' > /etc/profile.d/paseo-home.sh 2>/dev/null
 chmod 0644 /etc/profile.d/paseo-home.sh 2>/dev/null
 grep -q PASEO_HOME /etc/environment 2>/dev/null || echo 'PASEO_HOME=/workspace-state/.paseo' >> /etc/environment 2>/dev/null
+# Force HOME for all processes — OpenShift sets HOME=/ which breaks tools
+grep -q '^HOME=' /etc/environment 2>/dev/null || echo 'HOME=/home/vscode' >> /etc/environment 2>/dev/null
 set -e
 echo "entrypoint: set PASEO_HOME=/workspace-state/.paseo globally"
 
@@ -330,8 +332,9 @@ if [ -f /etc/profile.d/nvm-path.sh ]; then
 fi
 if command -v paseo &> /dev/null; then
   export PASEO_HOME="/workspace-state/.paseo"
-  # Ensure HOME is set so Paseo doesn't write to /
-  export HOME="${HOME:-/home/vscode}"
+  # Force HOME to /home/vscode — OpenShift sets HOME=/ which breaks tools
+  # that write to ~/.local/share (devin logs, etc.) and Paseo terminals.
+  export HOME="/home/vscode"
   mkdir -p "$PASEO_HOME" 2>/dev/null || true
   mkdir -p "$HOME/.claude" "$HOME/.codex" "$HOME/.config/opencode" 2>/dev/null || true
 
