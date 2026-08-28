@@ -288,10 +288,17 @@ fi
 # The daemon sets PASEO_HOME=/home/vscode/.paseo, but the CLI (and SSH
 # sessions) need it too, otherwise they look in ~/.paseo (empty) and don't
 # see the daemon's projects/agents/history.
-# Temporarily disable set -e to avoid exit on write failure.
+# Under OpenShift restricted SCC, /etc/profile.d and /etc/environment are
+# read-only (random UID), so write to the PVC-backed home directory instead.
 set +e
-echo 'export PASEO_HOME=/home/vscode/.paseo' > /etc/profile.d/paseo-home.sh 2>/dev/null
-chmod 0644 /etc/profile.d/paseo-home.sh 2>/dev/null
+mkdir -p /home/vscode/.config/environment.d 2>/dev/null
+echo 'PASEO_HOME=/home/vscode/.paseo' > /home/vscode/.config/environment.d/paseo-home.conf 2>/dev/null
+# Also add to .bashrc for interactive shells (idempotent)
+if [ -f /home/vscode/.bashrc ]; then
+  grep -q 'PASEO_HOME=' /home/vscode/.bashrc 2>/dev/null || \
+    echo 'export PASEO_HOME=/home/vscode/.paseo' >> /home/vscode/.bashrc 2>/dev/null
+fi
+# Try /etc/environment as fallback (works if running as root)
 grep -q PASEO_HOME /etc/environment 2>/dev/null || echo 'PASEO_HOME=/home/vscode/.paseo' >> /etc/environment 2>/dev/null
 # Force HOME for all processes — OpenShift sets HOME=/ which breaks tools
 grep -q '^HOME=' /etc/environment 2>/dev/null || echo 'HOME=/home/vscode' >> /etc/environment 2>/dev/null
