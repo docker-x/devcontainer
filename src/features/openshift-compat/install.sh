@@ -219,11 +219,28 @@ if [ "$CURRENT_UID" != "0" ] && [ "$CURRENT_UID" != "1000" ]; then
 
   # Fix ownership of /home/vscode so sshd accepts authorized_keys
   # Use group 0 (root) so random UID users in group 0 can access
-  chgrp -R 0 /home/vscode 2>/dev/null || true
-  chmod -R g+rwX /home/vscode 2>/dev/null || true
-  # Also ensure the top-level dir is accessible (sshd requires 755 or owned by root)
-  # Use 1777-like approach: group-writable + setgid
+  # Note: as non-root we can't chgrp, but we CAN chmod if we own the files
+  # The build-time chgrp 0 should have set group to 0 already.
+  # If files were created by later features as UID 1000:GID 1000, we need
+  # to fix them. Since we can't chgrp as non-root, we rely on the build-time
+  # setup. But we can try to make the dir accessible.
+  chmod g+rwX /home/vscode 2>/dev/null || true
   chmod 2775 /home/vscode 2>/dev/null || true
+  # If home is still inaccessible, create a fresh home dir on the PVC
+  if [ ! -r /home/vscode/.bashrc ] 2>/dev/null; then
+    echo "entrypoint: /home/vscode inaccessible, using PVC home"
+    mkdir -p /workspace-state/home-fallback
+    # Copy essential files from /etc/skel
+    cp -r /etc/skel/. /workspace-state/home-fallback/ 2>/dev/null || true
+    # Create symlinks for config dirs
+    for d in .config .local .claude .codex .paseo; do
+      mkdir -p "/workspace-state/home-fallback/$d" 2>/dev/null || true
+    done
+    # Remount home to the fallback
+    # We can't mount, but we can set HOME
+    export HOME=/workspace-state/home-fallback
+    echo "entrypoint: HOME set to $HOME"
+  fi
 fi
 
 # Set up SSH authorized_keys from mounted secret

@@ -37,3 +37,11 @@ if [ -n "$REMOTE_USER_HOME" ] && [ -d "$REMOTE_USER_HOME" ]; then
 fi
 
 echo "Paseo CLI installed successfully!"
+
+# Final permission fix: ensure /home/vscode is group-writable by group 0
+# for OpenShift random UID compatibility. Other features create files as
+# UID 1000:GID 1000; this fixes them so the runtime UID (in group 0) can access.
+echo "Paseo: fixing /home/vscode permissions for OpenShift compatibility"
+chgrp -R 0 /home/vscode 2>/dev/null || true
+chmod -R g+rwX /home/vscode 2>/dev/null || true
+chmod 2775 /home/vscode 2>/dev/null || true
