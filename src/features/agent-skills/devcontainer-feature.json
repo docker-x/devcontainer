@@ -1,0 +1,52 @@
+{
+  "id": "agent-skills",
+  "version": "1.0.0",
+  "name": "Agent Skills",
+  "description": "Install agent skills globally from GitHub repositories using npx skills or gh skill. Supports multiple skill packages, installer selection, and agent targeting.",
+  "documentationURL": "https://github.com/docker-x/devcontainer#agent-skills",
+  "keywords": [
+    "ai",
+    "agents",
+    "skills",
+    "devin",
+    "claude",
+    "codex",
+    "mcp"
+  ],
+  "options": {
+    "installer": {
+      "type": "string",
+      "default": "npx",
+      "description": "Skill installer: 'npx' (skills CLI) or 'gh' (gh skill)"
+    },
+    "skills": {
+      "type": "string",
+      "default": "theplenkov-ai/skills",
+      "description": "Comma-separated list of skill packages (GitHub repos) to install globally"
+    },
+    "agents": {
+      "type": "string",
+      "default": "*",
+      "description": "Comma-separated agent names to install skills for (e.g. 'devin,claude,codex'). Default '*' = all detected agents"
+    },
+    "scope": {
+      "type": "string",
+      "default": "home",
+      "description": "Install scope: 'home' (global, ~/.agents/skills/) or 'project' (./.agents/skills/)"
+    },
+    "copy": {
+      "type": "boolean",
+      "default": true,
+      "description": "Copy skill files instead of symlinking (recommended for npx/bunx transient caches)"
+    }
+  },
+  "dependsOn": {
+    "ghcr.io/docker-x/devcontainer/agent-config": {}
+  },
+  "installsAfter": [
+    "ghcr.io/devcontainers/features/common-utils",
+    "ghcr.io/devcontainers/features/node",
+    "ghcr.io/docker-x/devcontainer/agent-config",
+    "ghcr.io/devcontainers/features/github-cli"
+  ]
+}
