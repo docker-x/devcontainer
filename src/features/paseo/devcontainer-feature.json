@@ -1,0 +1,19 @@
+{
+  "id": "paseo",
+  "version": "1.0.0",
+  "name": "Paseo CLI",
+  "description": "Install Paseo CLI - local-first AI development environment with daemon, web UI, and agent orchestration.",
+  "documentationURL": "https://getpaseo.sh",
+  "keywords": ["ai", "paseo", "daemon", "agents", "cli"],
+  "options": {
+    "version": {
+      "type": "string",
+      "default": "latest",
+      "description": "Version of Paseo CLI to install"
+    }
+  },
+  "installsAfter": [
+    "ghcr.io/devcontainers/features/common-utils",
+    "ghcr.io/devcontainers/features/node"
+  ]
+}

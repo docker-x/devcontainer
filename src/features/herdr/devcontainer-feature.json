@@ -1,0 +1,22 @@
+{
+  "id": "herdr",
+  "version": "1.0.0",
+  "name": "Herdr",
+  "description": "Install Herdr - AI agent herd orchestration for coordinating multiple coding agents.",
+  "keywords": ["ai", "herdr", "agents", "orchestration", "herd"],
+  "options": {
+    "version": {
+      "type": "string",
+      "default": "latest",
+      "description": "Version of Herdr to install"
+    }
+  },
+  "dependsOn": {
+    "ghcr.io/docker-x/devcontainer/agent-config": {}
+  },
+  "installsAfter": [
+    "ghcr.io/devcontainers/features/common-utils",
+    "ghcr.io/devcontainers/features/node",
+    "ghcr.io/docker-x/devcontainer/agent-config"
+  ]
+}

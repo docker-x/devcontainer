@@ -1,0 +1,29 @@
+{
+  "id": "opencode",
+  "version": "1.0.0",
+  "name": "OpenCode AI",
+  "description": "Install OpenCode AI - open-source AI coding agent for terminal development.",
+  "documentationURL": "https://opencode.ai",
+  "keywords": ["ai", "opencode", "agents", "cli", "open-source"],
+  "options": {
+    "version": {
+      "type": "string",
+      "default": "latest",
+      "description": "Version of OpenCode to install"
+    },
+    "installMethod": {
+      "type": "string",
+      "enum": ["npm", "script"],
+      "default": "npm",
+      "description": "Install via npm or the official install script"
+    }
+  },
+  "dependsOn": {
+    "ghcr.io/docker-x/devcontainer/agent-config": {}
+  },
+  "installsAfter": [
+    "ghcr.io/devcontainers/features/common-utils",
+    "ghcr.io/devcontainers/features/node",
+    "ghcr.io/docker-x/devcontainer/agent-config"
+  ]
+}

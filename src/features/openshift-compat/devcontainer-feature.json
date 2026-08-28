@@ -1,0 +1,22 @@
+{
+  "id": "openshift-compat",
+  "version": "1.0.0",
+  "name": "OpenShift Compatibility",
+  "description": "Make devcontainer images compatible with OpenShift restricted SCC: SSH server, random UID support, fake sudo, group-writable home, DevPod agent pre-install.",
+  "keywords": ["openshift", "devpod", "ssh", "security", "scc"],
+  "options": {
+    "sshPort": {
+      "type": "string",
+      "default": "2222",
+      "description": "Port for the SSH server to listen on"
+    },
+    "installDevpodAgent": {
+      "type": "boolean",
+      "default": true,
+      "description": "Pre-install the DevPod agent binary to avoid runtime injection failures"
+    }
+  },
+  "installsAfter": [
+    "ghcr.io/devcontainers/features/common-utils"
+  ]
+}

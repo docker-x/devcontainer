@@ -1,0 +1,306 @@
+#!/bin/bash
+set -e
+
+# OpenShift Compatibility Feature — install script
+# Makes a devcontainer image compatible with OpenShift restricted SCC:
+#   - SSH server (sshd) on configurable port
+#   - /etc/ssh/authorized_keys (root-group writable) instead of ~/.ssh
+#   - Host keys generated at build time (regenerated at runtime if needed)
+#   - /etc/passwd & /etc/group group-writable for runtime UID fix
+#   - /home/vscode group-writable (root group) for random UIDs
+#   - Fake sudo wrapper (OpenShift blocks real sudo)
+#   - /home/pepl symlink -> /home/vscode (DevPod agent path)
+#   - DevPod agent binary pre-install (optional)
+#   - Entrypoint script installed to /usr/local/bin/entrypoint.sh
+
+SSH_PORT="${SSHPORT:-2222}"
+INSTALL_DEVPOD_AGENT="${INSTALLDEVPODAGENT:-true}"
+
+echo "openshift-compat: configuring for SSH port ${SSH_PORT}, devpod agent: ${INSTALL_DEVPOD_AGENT}"
+
+# --- Install openssh-server ---
+if ! command -v sshd &> /dev/null; then
+  echo "openshift-compat: installing openssh-server"
+  apt-get update -y
+  apt-get install -y --no-install-recommends openssh-server
+  rm -rf /var/lib/apt/lists/*
+fi
+mkdir -p /run/sshd
+
+# --- Configure sshd ---
+SSHD_CONFIG="/etc/ssh/sshd_config"
+# Port (replace commented default or append)
+if grep -q "^#Port " "$SSHD_CONFIG" 2>/dev/null; then
+  sed -i "s/^#Port .*/Port ${SSH_PORT}/" "$SSHD_CONFIG"
+elif grep -q "^Port " "$SSHD_CONFIG" 2>/dev/null; then
+  sed -i "s/^Port .*/Port ${SSH_PORT}/" "$SSHD_CONFIG"
+else
+  echo "Port ${SSH_PORT}" >> "$SSHD_CONFIG"
+fi
+# Password auth off, pubkey on
+sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication no/' "$SSHD_CONFIG" 2>/dev/null || true
+sed -i 's/^PasswordAuthentication yes/PasswordAuthentication no/' "$SSHD_CONFIG" 2>/dev/null || true
+sed -i 's/^#PubkeyAuthentication yes/PubkeyAuthentication yes/' "$SSHD_CONFIG" 2>/dev/null || true
+sed -i 's/^#PermitUserEnvironment no/PermitUserEnvironment yes/' "$SSHD_CONFIG" 2>/dev/null || true
+sed -i 's/^UsePAM yes/UsePAM no/' "$SSHD_CONFIG" 2>/dev/null || true
+# Allow vscode user login
+if ! grep -q "^AllowUsers " "$SSHD_CONFIG" 2>/dev/null; then
+  echo "AllowUsers vscode" >> "$SSHD_CONFIG"
+fi
+# Use /etc/ssh/authorized_keys (writable by root group) instead of ~/.ssh
+if ! grep -q "^AuthorizedKeysFile " "$SSHD_CONFIG" 2>/dev/null; then
+  echo "AuthorizedKeysFile /etc/ssh/authorized_keys" >> "$SSHD_CONFIG"
+fi
+# StrictModes off — home dir ownership is fluid under random UIDs
+if ! grep -q "^StrictModes " "$SSHD_CONFIG" 2>/dev/null; then
+  echo "StrictModes no" >> "$SSHD_CONFIG"
+fi
+
+# --- /etc/ssh/authorized_keys (root-group writable) ---
+touch /etc/ssh/authorized_keys
+chmod 644 /etc/ssh/authorized_keys
+chgrp 0 /etc/ssh/authorized_keys
+chmod g+w /etc/ssh/authorized_keys
+
+# --- Generate host keys at build time ---
+# These will be regenerated at runtime into /tmp/ssh if needed (owned by root,
+# not readable by random UIDs). Generating now ensures sshd can start in
+# environments where /etc/ssh is writable.
+ssh-keygen -A 2>/dev/null || true
+
+# --- Make /etc/passwd and /etc/group group-writable (chmod g=u) ---
+# So the runtime entrypoint can rewrite the vscode user's UID/GID for
+# OpenShift-assigned random UIDs.
+chmod g=u /etc/passwd /etc/group
+
+# --- Make /home/vscode group-writable (root group) ---
+chgrp -R 0 /home/vscode 2>/dev/null || true
+chmod -R g+rwX /home/vscode 2>/dev/null || true
+
+# --- Fake sudo wrapper ---
+# OpenShift restricted SCC sets "no new privileges" which blocks real sudo.
+# Many install scripts check for sudo availability (sudo -nl, sudo -v, etc.)
+# and use sudo to run commands. This wrapper handles query flags and passes
+# through to the real command.
+cat > /usr/local/bin/sudo << 'SUDOEOF'
+#!/bin/bash
+# Fake sudo for OpenShift restricted SCC compatibility
+# Handles query flags that installers use to check sudo availability
+if [[ "$1" == "-n" || "$1" == "-nl" || "$1" == "-ln" ]]; then
+    # sudo -n / -nl / -ln: list privileges non-interactively
+    # Return success with no output to indicate we "can" run commands
+    exit 0
+elif [[ "$1" == "-v" ]]; then
+    # sudo -v: validate credentials
+    exit 0
+elif [[ "$1" == "-l" ]]; then
+    # sudo -l: list privileges
+    echo "(ALL : ALL) NOPASSWD: ALL"
+    exit 0
+elif [[ "$1" == "-E" || "$1" == "--preserve-env" ]]; then
+    shift
+    exec "$@"
+elif [[ "$1" == "-u" ]]; then
+    # sudo -u <user> <cmd> — just run the command as current user
+    shift 2
+    exec "$@"
+else
+    # Strip any other sudo flags and run the command
+    while [[ "$1" == -* ]]; do
+        shift
+    done
+    exec "$@"
+fi
+SUDOEOF
+chmod +x /usr/local/bin/sudo
+
+# --- /home/pepl symlink -> /home/vscode ---
+# DevPod uses the host user's home path (/home/pepl/.local/bin/devpod)
+# but the container user is vscode with home /home/vscode.
+ln -sf /home/vscode /home/pepl
+
+# --- Pre-install DevPod agent binary ---
+if [ "$INSTALL_DEVPOD_AGENT" = "true" ]; then
+  echo "openshift-compat: pre-installing DevPod agent binary"
+  mkdir -p /home/vscode/.local/bin
+  DEVPOD_URL="https://github.com/loft-sh/devpod/releases/latest/download/devpod_Linux_x86_64.tar.gz"
+  curl -fsSL "$DEVPOD_URL" -o /tmp/devpod.tar.gz
+  tar -xzf /tmp/devpod.tar.gz -C /tmp devpod 2>/dev/null || tar -xzf /tmp/devpod.tar.gz -C /tmp 2>/dev/null || true
+  if [ -f /tmp/devpod ]; then
+    mv /tmp/devpod /home/vscode/.local/bin/devpod
+  elif [ -f /tmp/devpod-linux-amd64 ]; then
+    mv /tmp/devpod-linux-amd64 /home/vscode/.local/bin/devpod
+  fi
+  rm -f /tmp/devpod.tar.gz
+  chmod 755 /home/vscode/.local/bin/devpod 2>/dev/null || true
+  chgrp -R 0 /home/vscode/.local 2>/dev/null || true
+  chmod -R g+rwX /home/vscode/.local 2>/dev/null || true
+  echo "openshift-compat: DevPod agent installed to /home/vscode/.local/bin/devpod"
+fi
+
+# --- Install entrypoint.sh ---
+cat > /usr/local/bin/entrypoint.sh << 'ENTRYEOF'
+#!/bin/bash
+set -e
+
+# OpenShift entrypoint for DevPod SSH provider.
+# Adjusts the vscode user UID to match the OpenShift-assigned random UID,
+# sets up SSH, starts sshd, and keeps the container alive.
+# Optionally starts the Paseo daemon if the paseo command is available.
+
+CURRENT_UID=$(id -u)
+CURRENT_GID=$(id -g)
+
+echo "entrypoint: running as UID=${CURRENT_UID} GID=${CURRENT_GID}"
+
+# Only adjust if we're not root and not the default vscode user (UID 1000)
+if [ "$CURRENT_UID" != "0" ] && [ "$CURRENT_UID" != "1000" ]; then
+  # Add the current user to /etc/passwd if not already there
+  if ! grep -q ":${CURRENT_UID}:" /etc/passwd 2>/dev/null; then
+    echo "openshift:x:${CURRENT_UID}:${CURRENT_GID}:OpenShift User:/home/vscode:/bin/bash" >> /etc/passwd
+  fi
+  # Add all groups (primary + supplementary) to /etc/group if not already there
+  for gid in $(id -G); do
+    if ! grep -q ":${gid}:" /etc/group 2>/dev/null; then
+      echo "openshift-gid-${gid}:x:${gid}:" >> /etc/group
+    fi
+  done
+  # Rewrite the vscode user's UID/GID so SSH allows login as vscode
+  # sed -i doesn't work because it creates a temp file and /etc is not writable.
+  # Instead, rewrite the file in-place using awk + redirect.
+  awk -F: -v uid="$CURRENT_UID" -v gid="$CURRENT_GID" '
+    BEGIN { OFS=":" }
+    $1 == "vscode" { $3 = uid; $4 = gid }
+    { print }
+  ' /etc/passwd > /tmp/passwd.new && cat /tmp/passwd.new > /etc/passwd && rm /tmp/passwd.new
+
+  awk -F: -v gid="$CURRENT_GID" '
+    BEGIN { OFS=":" }
+    $1 == "vscode" { $3 = gid }
+    { print }
+  ' /etc/group > /tmp/group.new && cat /tmp/group.new > /etc/group && rm /tmp/group.new
+
+  # Verify the change worked
+  if grep -q "^vscode:x:${CURRENT_UID}:" /etc/passwd 2>/dev/null; then
+    echo "entrypoint: adjusted vscode user to UID=${CURRENT_UID} GID=${CURRENT_GID}"
+  else
+    echo "entrypoint: WARNING - could not adjust vscode user"
+    echo "entrypoint: vscode passwd entry: $(grep '^vscode:' /etc/passwd 2>/dev/null || echo 'NOT FOUND')"
+  fi
+
+  # Fix ownership of /home/vscode so sshd accepts authorized_keys
+  chown -R "${CURRENT_UID}:${CURRENT_GID}" /home/vscode 2>/dev/null || true
+  chmod 755 /home/vscode 2>/dev/null || true
+fi
+
+# Set up SSH authorized_keys from mounted secret
+# Use /etc/ssh/authorized_keys (configured via AuthorizedKeysFile in sshd_config)
+if [ -f /ssh-keys/authorized_keys ]; then
+  cat /ssh-keys/authorized_keys > /etc/ssh/authorized_keys
+  echo "entrypoint: SSH authorized_keys installed to /etc/ssh/authorized_keys"
+fi
+
+# Generate host keys in /tmp/ssh (writable under OpenShift restricted SCC)
+# Pre-generated keys in /etc/ssh are owned by root and not readable by random UIDs
+HOST_KEY_DIR="/tmp/ssh"
+mkdir -p "$HOST_KEY_DIR"
+for keytype in rsa ecdsa ed25519; do
+  KEY_FILE="$HOST_KEY_DIR/ssh_host_${keytype}_key"
+  if [ ! -f "$KEY_FILE" ]; then
+    ssh-keygen -t "$keytype" -f "$KEY_FILE" -N "" 2>/dev/null || true
+  fi
+done
+
+# --- Fix permissions on root-owned config files from image build ---
+chgrp -R 0 /home/vscode/.config/devin 2>/dev/null || true
+chmod -R g+rwX /home/vscode/.config/devin 2>/dev/null || true
+
+# --- Set up persistent state symlinks from PVC into home directory ---
+LINKS_DIR="/workspace-state/home-links"
+if [ -d "$LINKS_DIR" ]; then
+  for link in "$LINKS_DIR"/* "$LINKS_DIR"/.local/* "$LINKS_DIR"/.config/*; do
+    [ -e "$link" ] || continue
+    target=$(readlink -f "$link")
+    linkname=$(basename "$link")
+    case "$link" in
+      */.local/*) dest_dir="/home/vscode/.local" ;;
+      */.config/*) dest_dir="/home/vscode/.config" ;;
+      *) dest_dir="/home/vscode" ;;
+    esac
+    mkdir -p "$dest_dir" 2>/dev/null || true
+    ln -sf "$target" "$dest_dir/$linkname" 2>/dev/null || true
+  done
+  echo "entrypoint: persistent state symlinks installed from $LINKS_DIR"
+fi
+
+# --- Start Paseo daemon (only if paseo feature is present) ---
+PASEO_PID=""
+if command -v paseo &> /dev/null; then
+  export PASEO_HOME="/workspace-state/.paseo"
+  mkdir -p "$PASEO_HOME" 2>/dev/null || true
+
+  # Patch Paseo's injectConnectionHint to append the default port when the
+  # Host header has no port (common behind reverse proxies on standard ports).
+  PASEO_WEB_UI_SRC=$(find /usr/lib/node_modules/@getpaseo -path "*/server/server/web-ui.js" -type f 2>/dev/null | head -1)
+  if [ -n "$PASEO_WEB_UI_SRC" ] && [ -f "$PASEO_WEB_UI_SRC" ]; then
+    PATCHED="$PASEO_HOME/web-ui-patched.js"
+    cp "$PASEO_WEB_UI_SRC" "$PATCHED"
+    if ! grep -q "defaultPort" "$PATCHED" 2>/dev/null; then
+      sed -i 's/const useTls = req.protocol === "https";/const useTls = req.protocol === "https"; const defaultPort = useTls ? 443 : 80; const hostWithPort = host.includes(":") ? host : host + ":" + defaultPort;/' "$PATCHED"
+      sed -i 's/listen: host,/listen: hostWithPort,/' "$PATCHED"
+      echo "entrypoint: patched web-ui.js to append default port in connection hint"
+    fi
+    cat > "$PASEO_HOME/web-ui-loader.mjs" << PATCHEOF
+export async function resolve(specifier, context, nextResolve) {
+  const result = await nextResolve(specifier, context);
+  if (result.url && result.url.includes("server/server/web-ui.js") && result.url.includes("@getpaseo")) {
+    return { url: "file://$PATCHED", shortCircuit: true };
+  }
+  return result;
+}
+PATCHEOF
+    export NODE_OPTIONS="--loader=$PASEO_HOME/web-ui-loader.mjs"
+  fi
+
+  # Remove stale Paseo PID file if the process is not running
+  PASEO_PID_FILE="$PASEO_HOME/paseo.pid"
+  if [ -f "$PASEO_PID_FILE" ]; then
+    OLD_PID=$(cat "$PASEO_PID_FILE" 2>/dev/null || true)
+    if [ -n "$OLD_PID" ] && ! kill -0 "$OLD_PID" 2>/dev/null; then
+      echo "entrypoint: removing stale Paseo PID file (PID $OLD_PID not running)"
+      rm -f "$PASEO_PID_FILE"
+    fi
+  fi
+
+  echo "entrypoint: starting Paseo daemon on 127.0.0.1:6767 (web UI enabled, relay toggleable from UI)"
+  PASEO_LISTEN=127.0.0.1:6767 \
+  paseo daemon start --foreground --web-ui 2>&1 &
+  PASEO_PID=$!
+else
+  echo "entrypoint: paseo not found, skipping Paseo daemon"
+fi
+
+# --- Start SSH server ---
+echo "entrypoint: starting SSH server on port ${SSHPORT:-2222}"
+/usr/sbin/sshd -D -e \
+  -h "$HOST_KEY_DIR/ssh_host_rsa_key" \
+  -h "$HOST_KEY_DIR/ssh_host_ecdsa_key" \
+  -h "$HOST_KEY_DIR/ssh_host_ed25519_key" 2>&1 &
+SSHD_PID=$!
+
+# If arguments were passed, exec into them (the daemons run in background)
+if [ $# -gt 0 ]; then
+  echo "entrypoint: exec'ing into: $*"
+  exec "$@"
+fi
+
+# Wait for sshd (and paseo if running) to keep container alive
+if [ -n "$PASEO_PID" ]; then
+  wait -n "$SSHD_PID" "$PASEO_PID"
+else
+  wait -n "$SSHD_PID"
+fi
+ENTRYEOF
+chmod +x /usr/local/bin/entrypoint.sh
+
+echo "openshift-compat: installation complete"
