@@ -9,7 +9,6 @@ set -e
 #   - /etc/passwd & /etc/group group-writable for runtime UID fix
 #   - /home/vscode group-writable (root group) for random UIDs
 #   - Fake sudo wrapper (OpenShift blocks real sudo)
-#   - /home/pepl symlink -> /home/vscode (DevPod agent path)
 #   - DevPod agent binary pre-install (optional)
 #   - Entrypoint script installed to /usr/local/bin/entrypoint.sh
 
@@ -138,11 +137,6 @@ else
 fi
 SUDOEOF
 chmod +x /usr/local/bin/sudo
-
-# --- /home/pepl symlink -> /home/vscode ---
-# DevPod uses the host user's home path (/home/pepl/.local/bin/devpod)
-# but the container user is vscode with home /home/vscode.
-ln -sf /home/vscode /home/pepl
 
 # --- Pre-install DevPod agent binary ---
 if [ "$INSTALL_DEVPOD_AGENT" = "true" ]; then

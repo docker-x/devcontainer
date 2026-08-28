@@ -12,7 +12,6 @@ OpenShift restricted SCC assigns a random UID/GID at runtime, blocks privilege e
 - **`/etc/passwd` & `/etc/group`** — Made group-writable (`chmod g=u`) so the runtime entrypoint can rewrite the `vscode` user's UID/GID to match the OpenShift-assigned random UID.
 - **Home directory** — `/home/vscode` is made group-writable by group 0 (`chgrp -R 0`, `chmod -R g+rwX`) so the random-UID user can read and write.
 - **Fake sudo** — A wrapper at `/usr/local/bin/sudo` handles query flags (`-n`, `-nl`, `-v`, `-l`) and passes through real commands. Needed because OpenShift restricted SCC blocks real `sudo`, but many install scripts check for it.
-- **`/home/pepl` symlink** — Symlinks to `/home/vscode` so the DevPod agent (which expects the host user's home path) resolves correctly.
 - **DevPod agent pre-install** — Optionally downloads the DevPod agent binary to `/home/vscode/.local/bin/devpod` at build time, avoiding runtime injection failures over SSH on OpenShift.
 - **Entrypoint** — Installs `/usr/local/bin/entrypoint.sh` which handles UID/GID adjustment, SSH host key generation, authorized keys setup, persistent state symlinks, Paseo daemon startup (if present), and SSH server startup.
 
