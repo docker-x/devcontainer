@@ -54,3 +54,8 @@ chmod g+w /usr/local/bin 2>/dev/null || true
 # Fix /etc/profile.d so runtime entrypoint can write profile scripts
 chgrp 0 /etc/profile.d 2>/dev/null || true
 chmod g+w /etc/profile.d 2>/dev/null || true
+
+# Fix /usr/local/share/agent-config so runtime UID can write to config dirs
+# (devin, claude, codex, opencode, kilo, gascity, herdr symlinks point here)
+chgrp -R 0 /usr/local/share/agent-config 2>/dev/null || true
+chmod -R g+rwX /usr/local/share/agent-config 2>/dev/null || true
