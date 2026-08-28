@@ -26,15 +26,16 @@ else
 fi
 
 # Create .paseo directory in user home if it doesn't exist
+# NOTE: Do NOT create ~/.paseo as a real directory. The openshift-compat
+# entrypoint will symlink it to /workspace-state/.paseo (PVC) at runtime.
+# Creating it here as a real dir would prevent the symlink from working.
 REMOTE_USER="${_REMOTE_USER:-${_CONTAINER_USER:-root}}"
 REMOTE_USER_HOME="${_REMOTE_USER_HOME:-$(getent passwd "$REMOTE_USER" 2>/dev/null | cut -d: -f6)}"
 
-if [ -n "$REMOTE_USER_HOME" ] && [ -d "$REMOTE_USER_HOME" ]; then
-    mkdir -p "$REMOTE_USER_HOME/.paseo"
-    if id -u "$REMOTE_USER" >/dev/null 2>&1; then
-        chown -R "$REMOTE_USER:" "$REMOTE_USER_HOME/.paseo"
-    fi
-fi
+# Set up PASEO_HOME in /etc/profile.d so CLI and daemon share state
+echo 'export PASEO_HOME=/workspace-state/.paseo' > /etc/profile.d/paseo-home.sh
+chmod 0644 /etc/profile.d/paseo-home.sh
+grep -q PASEO_HOME /etc/environment 2>/dev/null || echo 'PASEO_HOME=/workspace-state/.paseo' >> /etc/environment
 
 echo "Paseo CLI installed successfully!"
 

@@ -296,9 +296,28 @@ if [ -n "$PASEO_BIN" ] && [ ! -f /usr/local/bin/paseo ]; then
   echo "entrypoint: linked paseo to /usr/local/bin"
 fi
 
-# --- Ensure brew is on PATH ---
-if [ -x /home/linuxbrew/.linuxbrew/bin/brew ] && [ ! -f /usr/local/bin/brew ]; then
-  ln -sf /home/linuxbrew/.linuxbrew/bin/brew /usr/local/bin/brew 2>/dev/null || true
+# --- Set PASEO_HOME globally so CLI and daemon use the same state ---
+# The daemon sets PASEO_HOME=/workspace-state/.paseo, but the CLI (and SSH
+# sessions) need it too, otherwise they look in ~/.paseo (empty) and don't
+# see the daemon's projects/agents/history.
+echo 'export PASEO_HOME=/workspace-state/.paseo' > /etc/profile.d/paseo-home.sh
+chmod 0644 /etc/profile.d/paseo-home.sh
+# Also set in /etc/environment for non-login shells
+grep -q PASEO_HOME /etc/environment 2>/dev/null || echo 'PASEO_HOME=/workspace-state/.paseo' >> /etc/environment
+echo "entrypoint: set PASEO_HOME=/workspace-state/.paseo globally"
+
+# --- Replace empty /home/vscode/.paseo dir with symlink to PVC ---
+# The paseo feature creates ~/.paseo as a real directory at build time.
+# This prevents the home-links symlink from working. Replace it.
+if [ -d /home/vscode/.paseo ] && [ ! -L /home/vscode/.paseo ]; then
+  # If it's empty, just remove and symlink
+  if [ -z "$(ls -A /home/vscode/.paseo 2>/dev/null)" ]; then
+    rmdir /home/vscode/.paseo 2>/dev/null && ln -sf /workspace-state/.paseo /home/vscode/.paseo 2>/dev/null || true
+    echo "entrypoint: replaced empty .paseo dir with symlink to PVC"
+  else
+    # Non-empty: leave it but warn (data might be there from a previous run)
+    echo "entrypoint: WARNING - /home/vscode/.paseo is non-empty, not replacing with symlink"
+  fi
 fi
 
 # --- Start Paseo daemon (only if paseo feature is present) ---
