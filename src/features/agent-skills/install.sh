@@ -1,29 +1,31 @@
 #!/usr/bin/env bash
 set -e
 
-# Agent Skills — install agent skills globally from GitHub repositories.
+# Agent Skills — install agent skills globally from multiple GitHub repositories.
 #
-# Supports two installers:
-#   npx  — uses `npx github:owner/repo --home --copy` (skills CLI)
-#   gh   — uses `gh skill install owner/repo --scope user --all` (gh skill)
+# Each repo is installed using the best available method:
+#   - Repos with a bin/skills.js (e.g. theplenkov-ai/skills) → npx github:owner/repo --home --copy
+#   - Repos with SKILL.md files but no bin (e.g. gastownhall/beads, github/gh-stack) → gh skill install
 #
-# Multiple skill packages can be specified as a comma-separated list.
+# The installer option forces one method for all repos:
+#   npx  — use npx for all (will fail gracefully on repos without bin/skills.js)
+#   gh   — use gh skill install for all
+#   auto — detect per-repo (default)
 
-INSTALLER="${INSTALLER:-npx}"
-SKILLS="${SKILLS:-theplenkov-ai/skills}"
+INSTALLER="${INSTALLER:-auto}"
 AGENTS="${AGENTS:-*}"
 SCOPE="${SCOPE:-home}"
 COPY="${COPY:-true}"
+
+# SKILLS is passed as space-separated args by devcontainer for array options
+SKILLS=("$@")
 
 REMOTE_USER="${_REMOTE_USER:-${_CONTAINER_USER:-vscode}}"
 HOME_DIR="/home/${REMOTE_USER}"
 
 echo "agent-skills: installer=${INSTALLER} scope=${SCOPE} copy=${COPY}"
-echo "agent-skills: skills=${SKILLS}"
+echo "agent-skills: skills=${SKILLS[*]}"
 echo "agent-skills: agents=${AGENTS}"
-
-# Parse comma-separated skills list
-IFS=',' read -ra SKILL_PACKAGES <<< "${SKILLS}"
 
 # Convert copy boolean
 if [[ "${COPY}" == "true" ]]; then
@@ -41,49 +43,57 @@ else
   GH_SCOPE="--scope project"
 fi
 
-# Build agent flags
+# Build agent flags for gh skill
 if [[ "${AGENTS}" == "*" ]]; then
-  NPX_AGENTS="--all"
-  GH_AGENTS="--all"
+  GH_AGENT_FLAG="--all"
 else
-  # Convert comma list to repeated --agent flags
-  NPX_AGENTS=""
-  GH_AGENTS=""
+  GH_AGENT_FLAG=""
   IFS=',' read -ra AGENT_LIST <<< "${AGENTS}"
   for agent in "${AGENT_LIST[@]}"; do
-    agent=$(echo "${agent}" | xargs)  # trim whitespace
-    NPX_AGENTS="${NPX_AGENTS} --agent ${agent}"
-    GH_AGENTS="${GH_AGENTS} --agent ${agent}"
+    agent=$(echo "${agent}" | xargs)
+    GH_AGENT_FLAG="${GH_AGENT_FLAG} --agent ${agent}"
   done
 fi
 
+# Install a repo via npx (works for repos with bin/skills.js wrapper)
 install_via_npx() {
   local repo="$1"
-  echo "agent-skills: installing ${repo} via npx skills"
-  # npx github:owner/repo --home --copy --yes
-  # The skills CLI auto-detects agents and creates symlinks
-  if [[ "${AGENTS}" == "*" ]]; then
-    npx "github:${repo}" ${NPX_SCOPE} ${COPY_FLAG} --yes 2>&1 || {
-      echo "agent-skills: WARNING — npx install failed for ${repo}, continuing"
-    }
-  else
-    npx "github:${repo}" ${NPX_SCOPE} ${COPY_FLAG} ${NPX_AGENTS} --yes 2>&1 || {
-      echo "agent-skills: WARNING — npx install failed for ${repo}, continuing"
-    }
-  fi
+  echo "agent-skills: installing ${repo} via npx"
+  npx "github:${repo}" ${NPX_SCOPE} ${COPY_FLAG} --yes 2>&1 || {
+    echo "agent-skills: WARNING — npx install failed for ${repo}, trying gh skill"
+    install_via_gh "${repo}"
+  }
 }
 
+# Install a repo via gh skill (works for any repo with SKILL.md files)
 install_via_gh() {
   local repo="$1"
   echo "agent-skills: installing ${repo} via gh skill"
-  # gh skill install owner/repo --all --scope user
-  gh skill install "${repo}" --all ${GH_SCOPE} --force 2>&1 || {
+  gh skill install "${repo}" --all ${GH_SCOPE} ${GH_AGENT_FLAG} --force 2>&1 || {
     echo "agent-skills: WARNING — gh skill install failed for ${repo}, continuing"
   }
 }
 
+# Auto-detect: try npx first (for repos with bin/skills.js), fall back to gh skill
+install_auto() {
+  local repo="$1"
+  echo "agent-skills: installing ${repo} (auto-detect)"
+  # Try npx first — repos with bin/skills.js will work
+  if npx "github:${repo}" ${NPX_SCOPE} ${COPY_FLAG} --yes 2>&1; then
+    echo "agent-skills: ${repo} installed via npx"
+  else
+    echo "agent-skills: npx failed for ${repo}, falling back to gh skill"
+    install_via_gh "${repo}"
+  fi
+}
+
 # Install each skill package
-for pkg in "${SKILL_PACKAGES[@]}"; do
+if [[ ${#SKILLS[@]} -eq 0 ]]; then
+  echo "agent-skills: no skills specified, skipping"
+  exit 0
+fi
+
+for pkg in "${SKILLS[@]}"; do
   pkg=$(echo "${pkg}" | xargs)  # trim whitespace
   if [[ -z "${pkg}" ]]; then
     continue
@@ -96,8 +106,11 @@ for pkg in "${SKILL_PACKAGES[@]}"; do
     gh)
       install_via_gh "${pkg}"
       ;;
+    auto)
+      install_auto "${pkg}"
+      ;;
     *)
-      echo "agent-skills: ERROR — unknown installer '${INSTALLER}', use 'npx' or 'gh'"
+      echo "agent-skills: ERROR — unknown installer '${INSTALLER}', use 'npx', 'gh', or 'auto'"
       exit 1
       ;;
   esac
