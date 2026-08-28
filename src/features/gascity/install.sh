@@ -5,7 +5,6 @@ set -e
 
 REMOTE_USER="${_REMOTE_USER:-${_CONTAINER_USER:-root}}"
 REMOTE_USER_HOME="${_REMOTE_USER_HOME:-$(getent passwd "$REMOTE_USER" 2>/dev/null | cut -d: -f6)}"
-REMOTE_USER_HOME="${REMOTE_USER_HOME:-$(eval echo ~$REMOTE_USER)}"
 AGENT_DIR="${AGENT_CONFIG_DIR:-/usr/local/share/agent-config}/gascity"
 HOMEBREW_PREFIX="/home/linuxbrew/.linuxbrew"
 
@@ -26,7 +25,8 @@ if ! command -v gc &> /dev/null; then
         "export PATH='$HOMEBREW_PREFIX/bin:\$PATH'; brew install gastownhall/gascity/gascity"
 fi
 
-echo "gc found at: $(which gc)"
+export PATH="$HOMEBREW_PREFIX/bin:$PATH"
+echo "gc found at: $(which gc 2>/dev/null || echo "$HOMEBREW_PREFIX/bin/gc")"
 gc version || true
 
 # Expose key binaries globally
@@ -49,7 +49,7 @@ fi
 # Shared agent config for Gas City
 mkdir -p "$AGENT_DIR"
 if id -u "$REMOTE_USER" >/dev/null 2>&1; then
-    chown -R "$REMOTE_USER:$REMOTE_USER" "$AGENT_DIR"
+    chown -R "$REMOTE_USER:" "$AGENT_DIR"
 fi
 
 if [ -d "$REMOTE_USER_HOME" ]; then
