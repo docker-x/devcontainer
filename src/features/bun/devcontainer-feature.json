@@ -1,8 +1,8 @@
 {
   "id": "bun",
-  "version": "1.0.2",
+  "version": "2.0.0",
   "name": "Bun",
-  "description": "Install Bun JavaScript runtime via Homebrew.",
+  "description": "Install Bun JavaScript runtime via the official installer and share its config folder with other agents.",
   "documentationURL": "https://bun.sh",
   "keywords": [
     "bun",
@@ -10,12 +10,18 @@
     "runtime",
     "typescript"
   ],
+  "options": {
+    "version": {
+      "type": "string",
+      "default": "latest",
+      "description": "Version of Bun to install (e.g. 'latest' or 'v1.1.0')"
+    }
+  },
   "dependsOn": {
-    "ghcr.io/docker-x/devcontainer/homebrew": {}
+    "ghcr.io/docker-x/devcontainer/agent-config": {}
   },
   "installsAfter": [
     "ghcr.io/devcontainers/features/common-utils",
-    "ghcr.io/docker-x/devcontainer/homebrew"
-  ],
-  "options": {}
+    "ghcr.io/docker-x/devcontainer/agent-config"
+  ]
 }

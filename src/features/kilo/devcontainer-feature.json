@@ -1,21 +1,22 @@
 {
   "id": "kilo",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "name": "Kilo CLI",
-  "description": "Install the Kilo CLI and its dependencies, sharing the agent config folder with other agents.",
-  "documentationURL": "https://kilocode.ai",
+  "description": "Install the Kilo CLI from GitHub releases and share the agent config folder with other agents.",
+  "documentationURL": "https://kilo.org",
   "keywords": [
     "ai",
     "kilo",
-    "cli",
-    "homebrew"
+    "cli"
   ],
-  "dependsOn": {
-    "ghcr.io/docker-x/devcontainer/homebrew": {}
-  },
   "installsAfter": [
-    "ghcr.io/devcontainers/features/common-utils",
-    "ghcr.io/docker-x/devcontainer/homebrew"
+    "ghcr.io/devcontainers/features/common-utils"
   ],
-  "options": {}
+  "options": {
+    "version": {
+      "type": "string",
+      "default": "latest",
+      "description": "Version of the Kilo CLI to install (e.g. \"1.0.25\" or \"latest\")."
+    }
+  }
 }
