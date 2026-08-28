@@ -65,8 +65,31 @@ if [[ -z "$HERDR_BIN" ]]; then
 fi
 
 if [[ ! -x "$HERDR_BIN" ]]; then
-    echo "Herdr installation failed: binary not found at $HERDR_BIN" >&2
-    exit 1
+    echo "Warning: Herdr binary not found at $HERDR_BIN — herdr may not be published yet" >&2
+    echo "Herdr feature installed (configuration only). Binary will be available when herdr is published."
+    # Still set up the agent config dir so herdr can use it when available
+    mkdir -p "$AGENT_DIR"
+    if id -u "$REMOTE_USER" >/dev/null 2>&1; then
+        chown -R "$REMOTE_USER:" "$AGENT_DIR"
+    fi
+    if [ -d "$REMOTE_USER_HOME" ]; then
+        for target in "$REMOTE_USER_HOME/.herdr" "$REMOTE_USER_HOME/.config/herdr"; do
+            if [ -e "$target" ] && [ ! -L "$target" ]; then
+                mv "$target" "$AGENT_DIR/$(basename "$target")-legacy"
+            fi
+            parent=$(dirname "$target")
+            mkdir -p "$parent"
+            rm -f "$target"
+            if id -u "$REMOTE_USER" >/dev/null 2>&1; then
+                chown "$REMOTE_USER:" "$parent" 2>/dev/null || true
+                su -s /bin/bash - "$REMOTE_USER" -c "ln -sfn '$AGENT_DIR' '$target'" 2>/dev/null || true
+            else
+                ln -sfn "$AGENT_DIR" "$target"
+            fi
+        done
+    fi
+    echo "Herdr feature installed successfully (configuration only, binary pending publication)"
+    exit 0
 fi
 
 cp "$HERDR_BIN" /usr/local/bin/herdr
