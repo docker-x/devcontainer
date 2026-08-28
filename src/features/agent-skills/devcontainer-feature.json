@@ -20,9 +20,9 @@
       "description": "Skill installer: 'auto' (detect per-repo), 'npx' (skills CLI), or 'gh' (gh skill)"
     },
     "skills": {
-      "type": "array",
-      "default": [],
-      "description": "List of skill packages (GitHub repos) to install globally"
+      "type": "string",
+      "default": "",
+      "description": "Comma-separated list of skill packages (GitHub repos) to install globally"
     },
     "agents": {
       "type": "string",

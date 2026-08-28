@@ -17,8 +17,9 @@ AGENTS="${AGENTS:-*}"
 SCOPE="${SCOPE:-home}"
 COPY="${COPY:-true}"
 
-# SKILLS is passed as space-separated args by devcontainer for array options
-SKILLS=("$@")
+# SKILLS is a comma-separated string (devcontainer features don't support array type)
+SKILLS_STR="${SKILLS:-}"
+IFS=',' read -ra SKILLS <<< "${SKILLS_STR}"
 
 REMOTE_USER="${_REMOTE_USER:-${_CONTAINER_USER:-vscode}}"
 HOME_DIR="/home/${REMOTE_USER}"
