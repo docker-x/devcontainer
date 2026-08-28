@@ -16,13 +16,13 @@
   "options": {
     "installer": {
       "type": "string",
-      "default": "npx",
-      "description": "Skill installer: 'npx' (skills CLI) or 'gh' (gh skill)"
+      "default": "auto",
+      "description": "Skill installer: 'auto' (detect per-repo), 'npx' (skills CLI), or 'gh' (gh skill)"
     },
     "skills": {
-      "type": "string",
-      "default": "theplenkov-ai/skills",
-      "description": "Comma-separated list of skill packages (GitHub repos) to install globally"
+      "type": "array",
+      "default": [],
+      "description": "List of skill packages (GitHub repos) to install globally"
     },
     "agents": {
       "type": "string",

@@ -220,20 +220,14 @@ if [ "$CURRENT_UID" != "0" ] && [ "$CURRENT_UID" != "1000" ]; then
   # setup. But we can try to make the dir accessible.
   chmod g+rwX /home/vscode 2>/dev/null || true
   chmod 2775 /home/vscode 2>/dev/null || true
-  # If home is still inaccessible, create a fresh home dir on the PVC
+  # If home is still inaccessible or empty (first boot on PVC), populate from /etc/skel
   if [ ! -r /home/vscode/.bashrc ] 2>/dev/null; then
-    echo "entrypoint: /home/vscode inaccessible, using PVC home"
-    mkdir -p /workspace-state/home-fallback
-    # Copy essential files from /etc/skel
-    cp -r /etc/skel/. /workspace-state/home-fallback/ 2>/dev/null || true
-    # Create symlinks for config dirs
-    for d in .config .local .claude .codex .paseo; do
-      mkdir -p "/workspace-state/home-fallback/$d" 2>/dev/null || true
+    echo "entrypoint: /home/vscode empty or inaccessible, populating from /etc/skel"
+    cp -r /etc/skel/. /home/vscode/ 2>/dev/null || true
+    # Ensure essential config dirs exist
+    for d in .config .local/share .local/bin .claude .codex .paseo; do
+      mkdir -p "/home/vscode/$d" 2>/dev/null || true
     done
-    # Remount home to the fallback
-    # We can't mount, but we can set HOME
-    export HOME=/workspace-state/home-fallback
-    echo "entrypoint: HOME set to $HOME"
   fi
 fi
 
@@ -291,32 +285,18 @@ if [ -n "$PASEO_BIN" ] && [ ! -f /usr/local/bin/paseo ]; then
 fi
 
 # --- Set PASEO_HOME globally so CLI and daemon use the same state ---
-# The daemon sets PASEO_HOME=/workspace-state/.paseo, but the CLI (and SSH
+# The daemon sets PASEO_HOME=/home/vscode/.paseo, but the CLI (and SSH
 # sessions) need it too, otherwise they look in ~/.paseo (empty) and don't
 # see the daemon's projects/agents/history.
 # Temporarily disable set -e to avoid exit on write failure.
 set +e
-echo 'export PASEO_HOME=/workspace-state/.paseo' > /etc/profile.d/paseo-home.sh 2>/dev/null
+echo 'export PASEO_HOME=/home/vscode/.paseo' > /etc/profile.d/paseo-home.sh 2>/dev/null
 chmod 0644 /etc/profile.d/paseo-home.sh 2>/dev/null
-grep -q PASEO_HOME /etc/environment 2>/dev/null || echo 'PASEO_HOME=/workspace-state/.paseo' >> /etc/environment 2>/dev/null
+grep -q PASEO_HOME /etc/environment 2>/dev/null || echo 'PASEO_HOME=/home/vscode/.paseo' >> /etc/environment 2>/dev/null
 # Force HOME for all processes — OpenShift sets HOME=/ which breaks tools
 grep -q '^HOME=' /etc/environment 2>/dev/null || echo 'HOME=/home/vscode' >> /etc/environment 2>/dev/null
 set -e
-echo "entrypoint: set PASEO_HOME=/workspace-state/.paseo globally"
-
-# --- Replace empty /home/vscode/.paseo dir with symlink to PVC ---
-# The paseo feature creates ~/.paseo as a real directory at build time.
-# This prevents the home-links symlink from working. Replace it.
-if [ -d /home/vscode/.paseo ] && [ ! -L /home/vscode/.paseo ]; then
-  # If it's empty, just remove and symlink
-  if [ -z "$(ls -A /home/vscode/.paseo 2>/dev/null)" ]; then
-    rmdir /home/vscode/.paseo 2>/dev/null && ln -sf /workspace-state/.paseo /home/vscode/.paseo 2>/dev/null || true
-    echo "entrypoint: replaced empty .paseo dir with symlink to PVC"
-  else
-    # Non-empty: leave it but warn (data might be there from a previous run)
-    echo "entrypoint: WARNING - /home/vscode/.paseo is non-empty, not replacing with symlink"
-  fi
-fi
+echo "entrypoint: set PASEO_HOME=/home/vscode/.paseo globally"
 
 # --- Start Paseo daemon (only if paseo feature is present) ---
 PASEO_PID=""
@@ -325,7 +305,7 @@ if [ -f /etc/profile.d/nvm-path.sh ]; then
   . /etc/profile.d/nvm-path.sh
 fi
 if command -v paseo &> /dev/null; then
-  export PASEO_HOME="/workspace-state/.paseo"
+  export PASEO_HOME="/home/vscode/.paseo"
   # Force HOME to /home/vscode — OpenShift sets HOME=/ which breaks tools
   # that write to ~/.local/share (devin logs, etc.) and Paseo terminals.
   export HOME="/home/vscode"
