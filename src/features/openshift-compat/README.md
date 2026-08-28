@@ -12,7 +12,8 @@ OpenShift restricted SCC assigns a random UID/GID at runtime, blocks privilege e
 - **`/etc/passwd` & `/etc/group`** — Made group-writable (`chmod g=u`) so the runtime entrypoint can rewrite the `vscode` user's UID/GID to match the OpenShift-assigned random UID.
 - **Home directory** — `/home/vscode` is made group-writable by group 0 (`chgrp -R 0`, `chmod -R g+rwX`) so the random-UID user can read and write.
 - **Fake sudo** — A wrapper at `/usr/local/bin/sudo` handles query flags (`-n`, `-nl`, `-v`, `-l`) and passes through real commands. Needed because OpenShift restricted SCC blocks real `sudo`, but many install scripts check for it.
-- **DevPod agent pre-install** — Optionally downloads the DevPod agent binary to `/home/vscode/.local/bin/devpod` at build time, avoiding runtime injection failures over SSH on OpenShift.
+- **Devsy agent pre-install** — Optionally downloads the Devsy agent binary to `/home/vscode/.local/bin/devsy` at build time. Fallback if Devsy's native agent injection fails on OpenShift restricted SCC. Disabled by default — test native injection first.
+- **DevPod agent pre-install** — Legacy option, kept for rollback during DevPod→Devsy migration. Downloads the DevPod agent binary to `/home/vscode/.local/bin/devpod`. Disabled by default.
 - **Entrypoint** — Installs `/usr/local/bin/entrypoint.sh` which handles UID/GID adjustment, SSH host key generation, authorized keys setup, persistent state symlinks, Paseo daemon startup (if present), and SSH server startup.
 
 ## Options
@@ -20,7 +21,8 @@ OpenShift restricted SCC assigns a random UID/GID at runtime, blocks privilege e
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `sshPort` | string | `"2222"` | Port for the SSH server to listen on |
-| `installDevpodAgent` | boolean | `true` | Pre-install the DevPod agent binary to avoid runtime injection failures |
+| `installDevsyAgent` | boolean | `false` | Pre-install the Devsy agent binary (fallback for OpenShift SCC) |
+| `installDevpodAgent` | boolean | `false` | Pre-install the DevPod agent binary (legacy, kept for rollback) |
 
 ## Usage
 
@@ -30,7 +32,7 @@ OpenShift restricted SCC assigns a random UID/GID at runtime, blocks privilege e
   "features": {
     "ghcr.io/theplenkov/devcontainer-features/openshift-compat:1": {
       "sshPort": "2222",
-      "installDevpodAgent": true
+      "installDevsyAgent": false
     }
   }
 }

@@ -9,13 +9,15 @@ set -e
 #   - /etc/passwd & /etc/group group-writable for runtime UID fix
 #   - /home/vscode group-writable (root group) for random UIDs
 #   - Fake sudo wrapper (OpenShift blocks real sudo)
-#   - DevPod agent binary pre-install (optional)
+#   - Devsy agent binary pre-install (optional, fallback for OpenShift SCC)
+#   - DevPod agent binary pre-install (optional, legacy — kept for rollback)
 #   - Entrypoint script installed to /usr/local/bin/entrypoint.sh
 
 SSH_PORT="${SSHPORT:-2222}"
-INSTALL_DEVPOD_AGENT="${INSTALLDEVPODAGENT:-true}"
+INSTALL_DEVSY_AGENT="${INSTALLDEVSYAGENT:-false}"
+INSTALL_DEVPOD_AGENT="${INSTALLDEVPODAGENT:-false}"
 
-echo "openshift-compat: configuring for SSH port ${SSH_PORT}, devpod agent: ${INSTALL_DEVPOD_AGENT}"
+echo "openshift-compat: configuring for SSH port ${SSH_PORT}, devsy agent: ${INSTALL_DEVSY_AGENT}, devpod agent: ${INSTALL_DEVPOD_AGENT}"
 
 # --- Install openssh-server ---
 if ! command -v sshd &> /dev/null; then
@@ -138,10 +140,24 @@ fi
 SUDOEOF
 chmod +x /usr/local/bin/sudo
 
-# --- Pre-install DevPod agent binary ---
+# --- Pre-install Devsy agent binary ---
+if [ "$INSTALL_DEVSY_AGENT" = "true" ]; then
+  echo "openshift-compat: pre-installing Devsy agent binary"
+  if ! command -v curl >/dev/null 2>&1; then
+    apt-get update -y && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+  fi
+  mkdir -p /home/vscode/.local/bin
+  DEVSY_URL="https://github.com/devsy-org/devsy/releases/latest/download/devsy-linux-amd64"
+  curl -fsSL "$DEVSY_URL" -o /home/vscode/.local/bin/devsy
+  chmod 755 /home/vscode/.local/bin/devsy 2>/dev/null || true
+  chgrp -R 0 /home/vscode/.local 2>/dev/null || true
+  chmod -R g+rwX /home/vscode/.local 2>/dev/null || true
+  echo "openshift-compat: Devsy agent installed to /home/vscode/.local/bin/devsy"
+fi
+
+# --- Pre-install DevPod agent binary (legacy, kept for rollback) ---
 if [ "$INSTALL_DEVPOD_AGENT" = "true" ]; then
-  echo "openshift-compat: pre-installing DevPod agent binary"
-  # Ensure curl and tar are available (base image may not have them)
+  echo "openshift-compat: pre-installing DevPod agent binary (legacy)"
   if ! command -v curl >/dev/null 2>&1; then
     apt-get update -y && apt-get install -y curl tar && rm -rf /var/lib/apt/lists/*
   fi
@@ -166,7 +182,7 @@ cat > /usr/local/bin/entrypoint.sh << 'ENTRYEOF'
 #!/bin/bash
 set -e
 
-# OpenShift entrypoint for DevPod SSH provider.
+# OpenShift entrypoint for Devsy/DevPod SSH provider.
 # Adjusts the vscode user UID to match the OpenShift-assigned random UID,
 # sets up SSH, starts sshd, and keeps the container alive.
 # Optionally starts the Paseo daemon if the paseo command is available.
