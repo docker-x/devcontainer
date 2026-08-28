@@ -16,6 +16,7 @@
       "description": "Port for the SSH server to listen on"
     }
   },
+  "entrypoint": "/usr/local/bin/entrypoint.sh",
   "installsAfter": [
     "ghcr.io/devcontainers/features/common-utils"
   ]

@@ -16,6 +16,11 @@ set -e
 
 SSH_PORT="${SSHPORT:-2222}"
 
+# Resolve the remote user and home directory instead of hard-coding vscode
+REMOTE_USER="${_REMOTE_USER:-${_CONTAINER_USER:-vscode}}"
+REMOTE_USER_HOME="${_REMOTE_USER_HOME:-$(getent passwd "$REMOTE_USER" 2>/dev/null | cut -d: -f6)}"
+REMOTE_USER_HOME="${REMOTE_USER_HOME:-/home/vscode}"
+
 echo "openshift-compat: configuring for SSH port ${SSH_PORT}"
 
 # --- Install openssh-server ---
@@ -55,12 +60,19 @@ fi
 if ! grep -q "^StrictModes " "$SSHD_CONFIG" 2>/dev/null; then
   echo "StrictModes no" >> "$SSHD_CONFIG"
 fi
+# Set PASEO_HOME for non-interactive SSH sessions
+if ! grep -q "^SetEnv.*PASEO_HOME" "$SSHD_CONFIG" 2>/dev/null; then
+  echo "SetEnv PASEO_HOME=${REMOTE_USER_HOME}/.paseo HOME=${REMOTE_USER_HOME}" >> "$SSHD_CONFIG"
+fi
 
 # --- /etc/ssh/authorized_keys (root-group writable) ---
 touch /etc/ssh/authorized_keys
 chmod 644 /etc/ssh/authorized_keys
 chgrp 0 /etc/ssh/authorized_keys
 chmod g+w /etc/ssh/authorized_keys
+
+# Note: PASEO_HOME for SSH sessions is set via SetEnv in sshd_config above.
+# /etc/ssh/environment is not read by sshd (per sshd(8) docs).
 
 # --- Generate host keys at build time ---
 # These will be regenerated at runtime into /tmp/ssh if needed (owned by root,
@@ -74,8 +86,8 @@ ssh-keygen -A 2>/dev/null || true
 chmod g=u /etc/passwd /etc/group
 
 # --- Make /home/vscode group-writable (root group) ---
-chgrp -R 0 /home/vscode 2>/dev/null || true
-chmod -R g+rwX /home/vscode 2>/dev/null || true
+chgrp -R 0 "${REMOTE_USER_HOME}" 2>/dev/null || true
+chmod -R g+rwX "${REMOTE_USER_HOME}" 2>/dev/null || true
 
 # --- Ensure nvm-managed Node is on PATH for all shells ---
 # The node feature installs via nvm, which only adds to .bashrc.
@@ -139,6 +151,16 @@ fi
 SUDOEOF
 chmod +x /usr/local/bin/sudo
 
+# --- Create runtime-writable bin directory for runtime symlinks ---
+# /usr/local/bin is root-owned and not writable under random UIDs, so we use
+# a dedicated runtime-bin directory (group-writable by group 0) for symlinks
+# created at runtime (e.g. paseo).
+mkdir -p /usr/local/share/runtime-bin
+chgrp 0 /usr/local/share/runtime-bin 2>/dev/null || true
+chmod g+w /usr/local/share/runtime-bin 2>/dev/null || true
+echo "export PATH=\"\$PATH:/usr/local/share/runtime-bin\"" > /etc/profile.d/runtime-bin.sh
+chmod 0644 /etc/profile.d/runtime-bin.sh
+
 # --- Install entrypoint.sh ---
 cat > /usr/local/bin/entrypoint.sh << 'ENTRYEOF'
 #!/bin/bash
@@ -151,6 +173,9 @@ set -e
 
 CURRENT_UID=$(id -u)
 CURRENT_GID=$(id -g)
+
+# Add runtime-bin to PATH for non-interactive sessions (profile.d not sourced)
+export PATH="$PATH:/usr/local/share/runtime-bin"
 
 echo "entrypoint: running as UID=${CURRENT_UID} GID=${CURRENT_GID}"
 
@@ -199,7 +224,7 @@ if [ "$CURRENT_UID" != "0" ] && [ "$CURRENT_UID" != "1000" ]; then
   chmod g+rwX /home/vscode 2>/dev/null || true
   chmod 2775 /home/vscode 2>/dev/null || true
   # If home is still inaccessible or empty (first boot on PVC), populate from /etc/skel
-  if [ ! -r /home/vscode/.bashrc ] 2>/dev/null; then
+  if [ ! -r /home/vscode/.bashrc ] 2>/dev/null && [ -z "$(ls -A /home/vscode 2>/dev/null)" ]; then
     echo "entrypoint: /home/vscode empty or inaccessible, populating from /etc/skel"
     cp -r /etc/skel/. /home/vscode/ 2>/dev/null || true
     # Ensure essential config dirs exist
@@ -256,10 +281,10 @@ if [ -d /workspace-state/workspace ] && [ ! -e /home/vscode/workspace ]; then
 fi
 
 # --- Ensure paseo is on PATH (nvm-managed, not in /usr/local/bin) ---
-PASEO_BIN=$(find /usr/local/share/nvm/versions/node -name paseo -type f 2>/dev/null | head -1)
-if [ -n "$PASEO_BIN" ] && [ ! -f /usr/local/bin/paseo ]; then
-  ln -sf "$PASEO_BIN" /usr/local/bin/paseo 2>/dev/null || true
-  echo "entrypoint: linked paseo to /usr/local/bin"
+PASEO_BIN=$(find /usr/local/share/nvm/versions/node -name paseo \( -type f -o -type l \) 2>/dev/null | head -1)
+if [ -n "$PASEO_BIN" ] && [ ! -f /usr/local/share/runtime-bin/paseo ]; then
+  ln -sf "$PASEO_BIN" /usr/local/share/runtime-bin/paseo 2>/dev/null || true
+  echo "entrypoint: linked paseo to /usr/local/share/runtime-bin"
 fi
 
 # --- Set PASEO_HOME globally so CLI and daemon use the same state ---
@@ -269,19 +294,37 @@ fi
 # Under OpenShift restricted SCC, /etc/profile.d and /etc/environment are
 # read-only (random UID), so write to the PVC-backed home directory instead.
 set +e
+PASEO_HOME_OK=0
 mkdir -p /home/vscode/.config/environment.d 2>/dev/null
-echo 'PASEO_HOME=/home/vscode/.paseo' > /home/vscode/.config/environment.d/paseo-home.conf 2>/dev/null
+echo 'PASEO_HOME=/home/vscode/.paseo' > /home/vscode/.config/environment.d/paseo-home.conf 2>/dev/null && PASEO_HOME_OK=1
 # Also add to .bashrc for interactive shells (idempotent)
 if [ -f /home/vscode/.bashrc ]; then
-  grep -q 'PASEO_HOME=' /home/vscode/.bashrc 2>/dev/null || \
-    echo 'export PASEO_HOME=/home/vscode/.paseo' >> /home/vscode/.bashrc 2>/dev/null
+  if ! grep -q 'PASEO_HOME=' /home/vscode/.bashrc 2>/dev/null; then
+    echo 'export PASEO_HOME=/home/vscode/.paseo' >> /home/vscode/.bashrc 2>/dev/null && PASEO_HOME_OK=1
+  else
+    PASEO_HOME_OK=1
+  fi
 fi
-# Try /etc/environment as fallback (works if running as root)
-grep -q PASEO_HOME /etc/environment 2>/dev/null || echo 'PASEO_HOME=/home/vscode/.paseo' >> /etc/environment 2>/dev/null
+# Replace existing PASEO_HOME (may have stale /workspace-state/.paseo value)
+if grep -q 'PASEO_HOME=' /etc/environment 2>/dev/null; then
+  sed -i 's|PASEO_HOME=.*|PASEO_HOME=/home/vscode/.paseo|' /etc/environment 2>/dev/null
+else
+  echo 'PASEO_HOME=/home/vscode/.paseo' >> /etc/environment 2>/dev/null
+fi
+if grep -q 'PASEO_HOME=/home/vscode/.paseo' /etc/environment 2>/dev/null; then
+  echo "entrypoint: PASEO_HOME set in /etc/environment"
+  PASEO_HOME_OK=1
+else
+  echo "entrypoint: WARNING — could not write PASEO_HOME to /etc/environment (read-only?)"
+fi
 # Force HOME for all processes — OpenShift sets HOME=/ which breaks tools
 grep -q '^HOME=' /etc/environment 2>/dev/null || echo 'HOME=/home/vscode' >> /etc/environment 2>/dev/null
 set -e
-echo "entrypoint: set PASEO_HOME=/home/vscode/.paseo globally"
+if [ "$PASEO_HOME_OK" -eq 1 ]; then
+  echo "entrypoint: set PASEO_HOME=/home/vscode/.paseo globally"
+else
+  echo "entrypoint: WARNING — could not set PASEO_HOME in any location"
+fi
 
 # --- Start Paseo daemon (only if paseo feature is present) ---
 PASEO_PID=""
@@ -299,17 +342,20 @@ if command -v paseo &> /dev/null; then
 
   # Patch Paseo's injectConnectionHint to append the default port when the
   # Host header has no port (common behind reverse proxies on standard ports).
-  PASEO_WEB_UI_SRC=$(find /usr/local/share/nvm/versions/node -path "*/@getpaseo/server/dist/server/server/web-ui.js" -type f 2>/dev/null | head -1)
-  [ -z "$PASEO_WEB_UI_SRC" ] && PASEO_WEB_UI_SRC=$(find /usr/lib/node_modules/@getpaseo -path "*/server/server/web-ui.js" -type f 2>/dev/null | head -1)
+  # Wrap in set +e so a read-only or missing home doesn't kill the entrypoint.
+  set +e
+  PASEO_WEB_UI_SRC=$(find /usr/local/share/nvm/versions/node -path "*/@getpaseo/server/dist/server/server/web-ui.js" \( -type f -o -type l \) 2>/dev/null | head -1)
+  [ -z "$PASEO_WEB_UI_SRC" ] && PASEO_WEB_UI_SRC=$(find /usr/lib/node_modules/@getpaseo -path "*/server/server/web-ui.js" \( -type f -o -type l \) 2>/dev/null | head -1)
   if [ -n "$PASEO_WEB_UI_SRC" ] && [ -f "$PASEO_WEB_UI_SRC" ]; then
     PATCHED="$PASEO_HOME/web-ui-patched.js"
-    cp "$PASEO_WEB_UI_SRC" "$PATCHED"
-    if ! grep -q "defaultPort" "$PATCHED" 2>/dev/null; then
-      sed -i 's/const useTls = req.protocol === "https";/const useTls = req.protocol === "https"; const defaultPort = useTls ? 443 : 80; const hostWithPort = host.includes(":") ? host : host + ":" + defaultPort;/' "$PATCHED"
-      sed -i 's/listen: host,/listen: hostWithPort,/' "$PATCHED"
-      echo "entrypoint: patched web-ui.js to append default port in connection hint"
-    fi
-    cat > "$PASEO_HOME/web-ui-loader.mjs" << PATCHEOF
+    cp "$PASEO_WEB_UI_SRC" "$PATCHED" 2>/dev/null || true
+    if [ -f "$PATCHED" ]; then
+      if ! grep -q "defaultPort" "$PATCHED" 2>/dev/null; then
+        sed -i 's/const useTls = req.protocol === "https";/const useTls = req.protocol === "https"; const defaultPort = useTls ? 443 : 80; const hostWithPort = host.includes(":") ? host : host + ":" + defaultPort;/' "$PATCHED" 2>/dev/null || true
+        sed -i 's/listen: host,/listen: hostWithPort,/' "$PATCHED" 2>/dev/null || true
+        echo "entrypoint: patched web-ui.js to append default port in connection hint"
+      fi
+      cat > "$PASEO_HOME/web-ui-loader.mjs" << PATCHEOF
 export async function resolve(specifier, context, nextResolve) {
   const result = await nextResolve(specifier, context);
   if (result.url && result.url.includes("server/server/web-ui.js") && result.url.includes("@getpaseo")) {
@@ -318,8 +364,12 @@ export async function resolve(specifier, context, nextResolve) {
   return result;
 }
 PATCHEOF
-    export NODE_OPTIONS="--loader=$PASEO_HOME/web-ui-loader.mjs"
+      export NODE_OPTIONS="--loader=$PASEO_HOME/web-ui-loader.mjs"
+    else
+      echo "entrypoint: WARNING — could not copy web-ui.js, skipping patch"
+    fi
   fi
+  set -e
 
   # Remove stale Paseo PID file if the process is not running
   PASEO_PID_FILE="$PASEO_HOME/paseo.pid"
