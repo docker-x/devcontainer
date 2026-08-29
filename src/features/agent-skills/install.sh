@@ -37,11 +37,18 @@ if [[ "${SCOPE}" == "project" ]]; then
 fi
 
 # Run a command as the remote user (for home-scoped installs)
+# Uses su without - (login flag) to preserve HOME from the environment
 run_as_user() {
   if [[ "$REMOTE_USER" == "root" ]]; then
-    "$@"
+    env HOME="${HOME_DIR}" "$@"
   else
-    su -s /bin/bash - "$REMOTE_USER" -c "$*"
+    # Use su without login flag (-) to avoid resetting HOME.
+    # Export HOME explicitly in the command string, then exec the args.
+    local cmd_args=()
+    for arg in "$@"; do
+      cmd_args+=("$(printf '%q' "$arg")")
+    done
+    su -s /bin/bash "$REMOTE_USER" -c "export HOME='${HOME_DIR}'; exec ${cmd_args[*]}"
   fi
 }
 
@@ -74,6 +81,7 @@ else
 fi
 
 FAILED_COUNT=0
+ATTEMPTED_COUNT=0
 
 # Install a repo via npx (works for repos with bin/skills.js wrapper)
 install_via_npx() {
@@ -97,12 +105,12 @@ install_via_gh() {
   local repo="$1"
   echo "agent-skills: installing ${repo} via gh skill"
   if [[ "${SCOPE}" == "home" ]]; then
-    HOME="${HOME_DIR}" run_as_user gh skill install "${repo}" ${GH_SCOPE} ${GH_AGENT_FLAG} ${COPY_FLAG} --force 2>&1 || {
+    HOME="${HOME_DIR}" run_as_user gh skill install "${repo}" ${GH_SCOPE} ${GH_AGENT_FLAG} --force 2>&1 || {
       echo "agent-skills: WARNING — gh skill install failed for ${repo}, continuing"
       FAILED_COUNT=$((FAILED_COUNT + 1))
     }
   else
-    gh skill install "${repo}" ${GH_SCOPE} ${GH_AGENT_FLAG} ${COPY_FLAG} --force 2>&1 || {
+    gh skill install "${repo}" ${GH_SCOPE} ${GH_AGENT_FLAG} --force 2>&1 || {
       echo "agent-skills: WARNING — gh skill install failed for ${repo}, continuing"
       FAILED_COUNT=$((FAILED_COUNT + 1))
     }
@@ -143,6 +151,8 @@ for pkg in "${SKILLS[@]}"; do
     continue
   fi
 
+  ATTEMPTED_COUNT=$((ATTEMPTED_COUNT + 1))
+
   case "${INSTALLER}" in
     npx)
       install_via_npx "${pkg}"
@@ -161,23 +171,17 @@ for pkg in "${SKILLS[@]}"; do
 done
 
 # Check if any installs failed
-if [[ ${FAILED_COUNT} -gt 0 ]] && [[ ${FAILED_COUNT} -eq ${#SKILLS[@]} ]]; then
+if [[ ${FAILED_COUNT} -gt 0 ]] && [[ ${FAILED_COUNT} -eq ${ATTEMPTED_COUNT} ]]; then
   echo "agent-skills: ERROR — all skill installations failed" >&2
   exit 1
 fi
 
-# Determine the skills directory based on scope
-if [[ "${SCOPE}" == "project" ]]; then
-  SKILLS_DIR="./.agents/skills"
-else
-  SKILLS_DIR="${HOME_DIR}/.agents/skills"
-fi
+# Determine the skills directory (SCOPE is always "home" at build time)
+SKILLS_DIR="${HOME_DIR}/.agents/skills"
 
 # Ensure skills directory is accessible to the remote user
 if [[ -d "${SKILLS_DIR}" ]]; then
-  if [[ "${SCOPE}" != "project" ]]; then
-    chown -R "${REMOTE_USER}:${REMOTE_USER}" "${HOME_DIR}/.agents" 2>/dev/null || true
-  fi
+  chown -R "${REMOTE_USER}:${REMOTE_USER}" "${HOME_DIR}/.agents" 2>/dev/null || true
 fi
 
 # Verify installation
