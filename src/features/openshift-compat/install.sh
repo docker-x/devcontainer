@@ -153,18 +153,24 @@ if [[ "$INSTALL_DEVSY_AGENT" == "true" ]]; then
     aarch64|arm64) DEVSY_ASSET="devsy-linux-arm64" ;;
     *) echo "openshift-compat: unsupported architecture $DEVSY_ARCH for Devsy agent" >&2; exit 1 ;;
   esac
-  DEVSY_URL="https://github.com/devsy-org/devsy/releases/latest/download/${DEVSY_ASSET}"
-  # Download once to a temp file; --proto =https blocks HTTP redirect hijacking
-  curl -fsSL --proto =https "$DEVSY_URL" -o /tmp/devsy-binary
+  # Pinned release tag — avoids mutable releases/latest URL (CWE-494).
+  # Bump DEVSY_VERSION when upgrading the agent.
+  DEVSY_VERSION="v1.16.2"
+  DEVSY_URL="https://github.com/devsy-org/devsy/releases/download/${DEVSY_VERSION}/${DEVSY_ASSET}"
+  # Download once to a mktemp-allocated file (CWE-377: avoid predictable /tmp path).
+  # --proto =https blocks HTTP redirect hijacking.
+  DEVSY_TMP="$(mktemp)"
+  trap 'rm -f "$DEVSY_TMP"' EXIT
+  curl -fsSL --proto =https "$DEVSY_URL" -o "$DEVSY_TMP"
   # /usr/local/bin — always on PATH, not hidden by PVC home mounts
-  install -m 755 /tmp/devsy-binary /usr/local/bin/devsy
+  install -m 755 "$DEVSY_TMP" /usr/local/bin/devsy
   # /home/vscode/.local/bin — home-based PATH (may be hidden by PVC)
   mkdir -p /home/vscode/.local/bin
-  install -m 755 /tmp/devsy-binary /home/vscode/.local/bin/devsy
+  install -m 755 "$DEVSY_TMP" /home/vscode/.local/bin/devsy
   # /etc/skel/.local/bin — repopulated into home on first PVC boot by entrypoint
   mkdir -p /etc/skel/.local/bin
-  install -m 755 /tmp/devsy-binary /etc/skel/.local/bin/devsy
-  rm -f /tmp/devsy-binary
+  install -m 755 "$DEVSY_TMP" /etc/skel/.local/bin/devsy
+  rm -f "$DEVSY_TMP"
   # Group permissions for home directory data dirs, but keep binary non-group-writable
   chgrp -R 0 /home/vscode/.local 2>/dev/null || true
   find /home/vscode/.local -type d -exec chmod g+rwX {} + 2>/dev/null || true
