@@ -12,12 +12,24 @@ DEVSY_VERSION="${DEVSYVERSION:-v1.16.2}"
 
 echo "workspace-agent: devsy=${INSTALL_DEVSY_AGENT} (v${DEVSY_VERSION}), devpod=${INSTALL_DEVPOD_AGENT}"
 
+# --- Install shared dependencies (curl, tar) once for both agents ---
+if [[ "$INSTALL_DEVSY_AGENT" == "true" || "$INSTALL_DEVPOD_AGENT" == "true" ]]; then
+  APT_PKGS=""
+  command -v curl >/dev/null 2>&1 || APT_PKGS="curl"
+  if [[ "$INSTALL_DEVPOD_AGENT" == "true" ]]; then
+    command -v tar >/dev/null 2>&1 || APT_PKGS="$APT_PKGS tar"
+  fi
+  # Trim leading space and install
+  APT_PKGS="${APT_PKGS# }"
+  if [ -n "$APT_PKGS" ]; then
+    # shellcheck disable=SC2086 # word-splitting needed for multiple packages
+    apt-get update -y && apt-get install -y $APT_PKGS && rm -rf /var/lib/apt/lists/*
+  fi
+fi
+
 # --- Pre-install Devsy agent binary ---
 if [[ "$INSTALL_DEVSY_AGENT" == "true" ]]; then
   echo "workspace-agent: pre-installing Devsy agent binary ${DEVSY_VERSION}"
-  if ! command -v curl >/dev/null 2>&1; then
-    apt-get update -y && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
-  fi
   # Select architecture-appropriate release asset (reject unsupported archs)
   DEVSY_ARCH="$(uname -m)"
   case "$DEVSY_ARCH" in
@@ -51,9 +63,6 @@ fi
 # --- Pre-install DevPod agent binary (legacy, kept for rollback) ---
 if [[ "$INSTALL_DEVPOD_AGENT" == "true" ]]; then
   echo "workspace-agent: pre-installing DevPod agent binary (legacy)"
-  if ! command -v curl >/dev/null 2>&1; then
-    apt-get update -y && apt-get install -y curl tar && rm -rf /var/lib/apt/lists/*
-  fi
   mkdir -p /home/vscode/.local/bin
   DEVPOD_URL="https://github.com/loft-sh/devpod/releases/latest/download/devpod_Linux_x86_64.tar.gz"
   curl -fsSL --proto =https "$DEVPOD_URL" -o /tmp/devpod.tar.gz
