@@ -54,31 +54,31 @@ run_as_user() {
   fi
 }
 
-# Convert copy boolean
+# Convert copy boolean — use arrays for safe quoting (no word-splitting issues)
 if [[ "${COPY}" == "true" ]]; then
-  COPY_FLAG="--copy"
+  COPY_FLAG=("--copy")
 else
-  COPY_FLAG="--no-copy"
+  COPY_FLAG=("--no-copy")
 fi
 
 # Determine scope flag
 if [[ "${SCOPE}" == "home" ]]; then
-  NPX_SCOPE="--global"
-  GH_SCOPE="--scope user"
+  NPX_SCOPE=("--global")
+  GH_SCOPE=("--scope" "user")
 else
-  NPX_SCOPE="--project"
-  GH_SCOPE="--scope project"
+  NPX_SCOPE=("--project")
+  GH_SCOPE=("--scope" "project")
 fi
 
 # Build agent flags for gh skill
 if [[ "${AGENTS}" == "*" ]]; then
-  GH_AGENT_FLAG="--all"
+  GH_AGENT_FLAG=("--all")
 else
-  GH_AGENT_FLAG=""
+  GH_AGENT_FLAG=()
   IFS=',' read -ra AGENT_LIST <<< "${AGENTS}"
   for agent in "${AGENT_LIST[@]}"; do
     agent=$(echo "${agent}" | xargs)
-    GH_AGENT_FLAG="${GH_AGENT_FLAG} --agent ${agent}"
+    GH_AGENT_FLAG+=("--agent" "${agent}")
   done
 fi
 
@@ -89,7 +89,7 @@ ATTEMPTED_COUNT=0
 install_via_npx() {
   local repo="$1"
   echo "agent-skills: installing ${repo} via npx"
-  run_as_user npx "github:${repo}" ${NPX_SCOPE} ${COPY_FLAG} --yes 2>&1 || {
+  run_as_user npx "github:${repo}" "${NPX_SCOPE[@]}" "${COPY_FLAG[@]}" --yes 2>&1 || {
     echo "agent-skills: WARNING — npx install failed for ${repo}, trying gh skill"
     install_via_gh "${repo}"
   }
@@ -99,7 +99,7 @@ install_via_npx() {
 install_via_gh() {
   local repo="$1"
   echo "agent-skills: installing ${repo} via gh skill"
-  run_as_user gh skill install "${repo}" ${GH_SCOPE} ${GH_AGENT_FLAG} --force 2>&1 || {
+  run_as_user gh skill install "${repo}" "${GH_SCOPE[@]}" "${GH_AGENT_FLAG[@]}" --force 2>&1 || {
     echo "agent-skills: WARNING — gh skill install failed for ${repo}, continuing"
     FAILED_COUNT=$((FAILED_COUNT + 1))
   }
@@ -110,7 +110,7 @@ install_auto() {
   local repo="$1"
   echo "agent-skills: installing ${repo} (auto-detect)"
   # Try npx first — repos with bin/skills.js will work
-  if run_as_user npx "github:${repo}" ${NPX_SCOPE} ${COPY_FLAG} --yes 2>&1; then
+  if run_as_user npx "github:${repo}" "${NPX_SCOPE[@]}" "${COPY_FLAG[@]}" --yes 2>&1; then
     echo "agent-skills: ${repo} installed via npx"
   else
     echo "agent-skills: npx failed for ${repo}, falling back to gh skill"
