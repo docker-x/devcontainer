@@ -89,34 +89,20 @@ ATTEMPTED_COUNT=0
 install_via_npx() {
   local repo="$1"
   echo "agent-skills: installing ${repo} via npx"
-  if [[ "${SCOPE}" == "home" ]]; then
-    HOME="${HOME_DIR}" run_as_user npx "github:${repo}" ${NPX_SCOPE} ${COPY_FLAG} --yes 2>&1 || {
-      echo "agent-skills: WARNING — npx install failed for ${repo}, trying gh skill"
-      install_via_gh "${repo}"
-    }
-  else
-    npx "github:${repo}" ${NPX_SCOPE} ${COPY_FLAG} --yes 2>&1 || {
-      echo "agent-skills: WARNING — npx install failed for ${repo}, trying gh skill"
-      install_via_gh "${repo}"
-    }
-  fi
+  run_as_user npx "github:${repo}" ${NPX_SCOPE} ${COPY_FLAG} --yes 2>&1 || {
+    echo "agent-skills: WARNING — npx install failed for ${repo}, trying gh skill"
+    install_via_gh "${repo}"
+  }
 }
 
 # Install a repo via gh skill (works for any repo with SKILL.md files)
 install_via_gh() {
   local repo="$1"
   echo "agent-skills: installing ${repo} via gh skill"
-  if [[ "${SCOPE}" == "home" ]]; then
-    HOME="${HOME_DIR}" run_as_user gh skill install "${repo}" ${GH_SCOPE} ${GH_AGENT_FLAG} --force 2>&1 || {
-      echo "agent-skills: WARNING — gh skill install failed for ${repo}, continuing"
-      FAILED_COUNT=$((FAILED_COUNT + 1))
-    }
-  else
-    gh skill install "${repo}" ${GH_SCOPE} ${GH_AGENT_FLAG} --force 2>&1 || {
-      echo "agent-skills: WARNING — gh skill install failed for ${repo}, continuing"
-      FAILED_COUNT=$((FAILED_COUNT + 1))
-    }
-  fi
+  run_as_user gh skill install "${repo}" ${GH_SCOPE} ${GH_AGENT_FLAG} --force 2>&1 || {
+    echo "agent-skills: WARNING — gh skill install failed for ${repo}, continuing"
+    FAILED_COUNT=$((FAILED_COUNT + 1))
+  }
 }
 
 # Auto-detect: try npx first (for repos with bin/skills.js), fall back to gh skill
@@ -124,20 +110,11 @@ install_auto() {
   local repo="$1"
   echo "agent-skills: installing ${repo} (auto-detect)"
   # Try npx first — repos with bin/skills.js will work
-  if [[ "${SCOPE}" == "home" ]]; then
-    if HOME="${HOME_DIR}" run_as_user npx "github:${repo}" ${NPX_SCOPE} ${COPY_FLAG} --yes 2>&1; then
-      echo "agent-skills: ${repo} installed via npx"
-    else
-      echo "agent-skills: npx failed for ${repo}, falling back to gh skill"
-      install_via_gh "${repo}"
-    fi
+  if run_as_user npx "github:${repo}" ${NPX_SCOPE} ${COPY_FLAG} --yes 2>&1; then
+    echo "agent-skills: ${repo} installed via npx"
   else
-    if npx "github:${repo}" ${NPX_SCOPE} ${COPY_FLAG} --yes 2>&1; then
-      echo "agent-skills: ${repo} installed via npx"
-    else
-      echo "agent-skills: npx failed for ${repo}, falling back to gh skill"
-      install_via_gh "${repo}"
-    fi
+    echo "agent-skills: npx failed for ${repo}, falling back to gh skill"
+    install_via_gh "${repo}"
   fi
 }
 
