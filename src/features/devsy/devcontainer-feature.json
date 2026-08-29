@@ -1,0 +1,22 @@
+{
+  "id": "devsy",
+  "version": "1.0.0",
+  "name": "Devsy Agent",
+  "description": "Pre-install the Devsy agent binary at build time. Fallback for orchestrators where native agent injection fails (e.g. OpenShift restricted SCC).",
+  "keywords": [
+    "devsy",
+    "agent",
+    "openshift",
+    "scc"
+  ],
+  "options": {
+    "version": {
+      "type": "string",
+      "default": "v1.16.2",
+      "description": "Pinned Devsy release version to download"
+    }
+  },
+  "installsAfter": [
+    "ghcr.io/devcontainers/features/common-utils"
+  ]
+}

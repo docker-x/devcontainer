@@ -1,0 +1,16 @@
+{
+  "id": "devpod",
+  "version": "1.0.0",
+  "name": "DevPod Agent (Legacy)",
+  "description": "Pre-install the DevPod agent binary at build time. DevPod is unmaintained — use only for rollback during DevPod→Devsy migration.",
+  "keywords": [
+    "devpod",
+    "agent",
+    "legacy",
+    "openshift"
+  ],
+  "options": {},
+  "installsAfter": [
+    "ghcr.io/devcontainers/features/common-utils"
+  ]
+}
