@@ -4,7 +4,7 @@
 
 ## What it does
 
-Downloads the DevPod agent binary to `/home/vscode/.local/bin/devpod`. Used as a fallback when DevPod's native agent injection fails on OpenShift restricted SCC.
+Downloads the DevPod agent binary to the remote user's `.local/bin/devpod` (default: `/home/vscode/.local/bin/devpod`), `/usr/local/bin/devpod`, and `/etc/skel/.local/bin/devpod`. The multiple locations ensure `command -v devpod` works even when a PVC mounted at the home directory hides image-layer files. Used as a fallback when DevPod's native agent injection fails on OpenShift restricted SCC.
 
 ## Usage
 

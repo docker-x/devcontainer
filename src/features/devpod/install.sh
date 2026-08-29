@@ -21,6 +21,7 @@ fi
 
 REMOTE_USER_HOME="${_REMOTE_USER_HOME:-/home/vscode}"
 mkdir -p "$REMOTE_USER_HOME/.local/bin"
+mkdir -p /etc/skel/.local/bin
 
 # Architecture detection — amd64 uses tar.gz, arm64 uses raw binary.
 DEVPOD_ARCH="$(uname -m)"
@@ -57,17 +58,23 @@ if [ "$DEVPOD_IS_TARGZ" = "1" ]; then
   tar -xzf "$DEVPOD_TMP" -C "$DEVPOD_EXTRACT_DIR"
   # The tar.gz contains the CLI at usr/bin/devpod-cli (not a root-level binary).
   if [ -f "$DEVPOD_EXTRACT_DIR/usr/bin/devpod-cli" ]; then
+    install -m 755 "$DEVPOD_EXTRACT_DIR/usr/bin/devpod-cli" /usr/local/bin/devpod
     install -m 755 "$DEVPOD_EXTRACT_DIR/usr/bin/devpod-cli" "$REMOTE_USER_HOME/.local/bin/devpod"
+    install -m 755 "$DEVPOD_EXTRACT_DIR/usr/bin/devpod-cli" /etc/skel/.local/bin/devpod
   else
     echo "devpod: binary not found in archive after extraction" >&2
     exit 1
   fi
 else
+  install -m 755 "$DEVPOD_TMP" /usr/local/bin/devpod
   install -m 755 "$DEVPOD_TMP" "$REMOTE_USER_HOME/.local/bin/devpod"
+  install -m 755 "$DEVPOD_TMP" /etc/skel/.local/bin/devpod
 fi
 
 # Group permissions for home directory data dirs, but keep binary non-group-writable
 chgrp -R 0 "$REMOTE_USER_HOME/.local" 2>/dev/null || true
 find "$REMOTE_USER_HOME/.local" -type d -exec chmod g+rwX {} + 2>/dev/null || true
+chgrp -R 0 /etc/skel/.local 2>/dev/null || true
+find /etc/skel/.local -type d -exec chmod g+rwX {} + 2>/dev/null || true
 
-echo "devpod: agent installed to $REMOTE_USER_HOME/.local/bin/devpod"
+echo "devpod: agent installed to /usr/local/bin/devpod, $REMOTE_USER_HOME/.local/bin/devpod, /etc/skel/.local/bin/devpod"
