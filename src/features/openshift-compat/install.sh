@@ -12,7 +12,7 @@ set -e
 #   - Entrypoint script installed to /usr/local/bin/entrypoint.sh
 #
 # Agent binary pre-install (Devsy/DevPod) is handled by the separate
-# workspace-agent feature.
+# devsy and devpod features.
 
 SSH_PORT="${SSHPORT:-2222}"
 

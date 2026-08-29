@@ -44,7 +44,6 @@ install -m 755 "$DEVSY_TMP" "$REMOTE_USER_HOME/.local/bin/devsy"
 # /etc/skel/.local/bin — repopulated into home on first PVC boot by entrypoint
 mkdir -p /etc/skel/.local/bin
 install -m 755 "$DEVSY_TMP" /etc/skel/.local/bin/devsy
-rm -f "$DEVSY_TMP"
 
 # Group permissions for home directory data dirs, but keep binary non-group-writable
 chgrp -R 0 "$REMOTE_USER_HOME/.local" 2>/dev/null || true
