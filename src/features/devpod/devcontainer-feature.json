@@ -9,7 +9,13 @@
     "legacy",
     "openshift"
   ],
-  "options": {},
+  "options": {
+    "version": {
+      "type": "string",
+      "default": "v0.6.15",
+      "description": "Pinned DevPod release version to download"
+    }
+  },
   "installsAfter": [
     "ghcr.io/devcontainers/features/common-utils"
   ]
