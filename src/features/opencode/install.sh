@@ -1,5 +1,5 @@
 #!/bin/bash
-set -eo pipefail
+set -e
 
 # OpenCode AI Installation Script (non-interactive)
 
@@ -9,6 +9,9 @@ INSTALL_METHOD=${INSTALLMETHOD:-"npm"}
 REMOTE_USER="${_REMOTE_USER:-${_CONTAINER_USER:-root}}"
 REMOTE_USER_HOME="${_REMOTE_USER_HOME:-$(getent passwd "$REMOTE_USER" 2>/dev/null | cut -d: -f6)}"
 AGENT_DIR="${AGENT_CONFIG_DIR:-/usr/local/share/agent-config}/opencode"
+
+# Enable pipefail after home resolution (getent may fail under set -eo pipefail)
+set -o pipefail
 
 echo "Installing OpenCode AI (method: ${INSTALL_METHOD}, version: ${VERSION})..."
 
