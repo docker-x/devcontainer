@@ -200,6 +200,12 @@ if [ "$INSTALL_DEVPOD_AGENT" = "true" ]; then
   echo "openshift-compat: DevPod agent installed to /home/vscode/.local/bin/devpod"
 fi
 
+# Re-assert non-group-writable mode on the Devsy binary after the DevPod block,
+# whose recursive chmod -R g+rwX may have flipped it from 755 to 775.
+if [[ "$INSTALL_DEVSY_AGENT" == "true" ]] && [[ -f /home/vscode/.local/bin/devsy ]]; then
+  chmod 755 /home/vscode/.local/bin/devsy 2>/dev/null || true
+fi
+
 # --- Install entrypoint.sh ---
 cat > /usr/local/bin/entrypoint.sh << 'ENTRYEOF'
 #!/bin/bash
