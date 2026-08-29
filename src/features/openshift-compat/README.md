@@ -30,7 +30,7 @@ Agent binary pre-install (Devsy/DevPod) is handled by the separate **devsy** and
 {
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
   "features": {
-    "ghcr.io/theplenkov/devcontainer-features/openshift-compat:1": {
+    "ghcr.io/theplenkov/devcontainer-features/openshift-compat:2": {
       "sshPort": "2222"
     }
   }

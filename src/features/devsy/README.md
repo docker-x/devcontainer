@@ -7,7 +7,7 @@ Pre-installs the Devsy agent binary at build time. Used as a **fallback** when n
 Downloads the Devsy agent binary at build time. Detects CPU architecture (`x86_64`/`arm64`) and selects the matching release asset, rejecting unsupported architectures. Verifies SHA-256 integrity of the download. The binary is installed to three locations for maximum robustness:
 
 - `/usr/local/bin/devsy` — always on PATH, not affected by PVC home mounts
-- `/home/vscode/.local/bin/devsy` — home-based PATH
+- `$REMOTE_USER_HOME/.local/bin/devsy` — home-based PATH (resolves `_REMOTE_USER_HOME` from common-utils, defaults to `/home/vscode`)
 - `/etc/skel/.local/bin/devsy` — repopulated into home on first PVC boot by the openshift-compat entrypoint
 
 The Devsy version is pinned to `v1.16.2` with hardcoded SHA-256 checksums for integrity verification. To update the version, edit `install.sh` and update both the version and the per-architecture checksums.
