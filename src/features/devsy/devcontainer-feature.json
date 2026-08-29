@@ -9,13 +9,7 @@
     "openshift",
     "scc"
   ],
-  "options": {
-    "version": {
-      "type": "string",
-      "default": "v1.16.2",
-      "description": "Pinned Devsy release version to download"
-    }
-  },
+  "options": {},
   "installsAfter": [
     "ghcr.io/devcontainers/features/common-utils"
   ]

@@ -6,7 +6,7 @@ set -e
 # Used as a fallback when native agent injection fails (e.g. OpenShift
 # restricted SCC blocks the injected agent process from running).
 
-DEVSY_VERSION="${VERSION:-v1.16.2}"
+DEVSY_VERSION="v1.16.2"
 
 echo "devsy: pre-installing Devsy agent binary ${DEVSY_VERSION}"
 
@@ -33,19 +33,21 @@ curl -fsSL --proto =https "$DEVSY_URL" -o "$DEVSY_TMP"
 # Verify SHA-256 digest (CWE-494: integrity check for downloaded binary).
 printf '%s  %s\n' "$DEVSY_SHA256" "$DEVSY_TMP" | sha256sum -c -
 
+# Use _REMOTE_USER_HOME if available (set by common-utils feature), fallback to /home/vscode
+REMOTE_USER_HOME="${_REMOTE_USER_HOME:-/home/vscode}"
+
 # /usr/local/bin — always on PATH, not hidden by PVC home mounts
 install -m 755 "$DEVSY_TMP" /usr/local/bin/devsy
-# /home/vscode/.local/bin — home-based PATH (may be hidden by PVC)
-mkdir -p /home/vscode/.local/bin
-install -m 755 "$DEVSY_TMP" /home/vscode/.local/bin/devsy
+# $REMOTE_USER_HOME/.local/bin — home-based PATH (may be hidden by PVC)
+mkdir -p "$REMOTE_USER_HOME/.local/bin"
+install -m 755 "$DEVSY_TMP" "$REMOTE_USER_HOME/.local/bin/devsy"
 # /etc/skel/.local/bin — repopulated into home on first PVC boot by entrypoint
 mkdir -p /etc/skel/.local/bin
 install -m 755 "$DEVSY_TMP" /etc/skel/.local/bin/devsy
 rm -f "$DEVSY_TMP"
 
 # Group permissions for home directory data dirs, but keep binary non-group-writable
-chgrp -R 0 /home/vscode/.local 2>/dev/null || true
-find /home/vscode/.local -type d -exec chmod g+rwX {} + 2>/dev/null || true
-chmod 755 /home/vscode/.local/bin/devsy 2>/dev/null || true
+chgrp -R 0 "$REMOTE_USER_HOME/.local" 2>/dev/null || true
+find "$REMOTE_USER_HOME/.local" -type d -exec chmod g+rwX {} + 2>/dev/null || true
 
-echo "devsy: agent installed to /usr/local/bin/devsy, /home/vscode/.local/bin/devsy, /etc/skel/.local/bin/devsy"
+echo "devsy: agent installed to /usr/local/bin/devsy, $REMOTE_USER_HOME/.local/bin/devsy, /etc/skel/.local/bin/devsy"

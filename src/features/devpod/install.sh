@@ -5,7 +5,7 @@ set -e
 # DevPod is unmaintained. This feature exists only for rollback during
 # the DevPod→Devsy migration. Do not use in new containers.
 
-DEVPOD_VERSION="${VERSION:-v0.6.15}"
+DEVPOD_VERSION="v0.6.15"
 
 echo "devpod: pre-installing DevPod agent binary ${DEVPOD_VERSION} (legacy)"
 
@@ -19,31 +19,56 @@ if [ -n "$APT_PKGS" ]; then
   apt-get update -y && apt-get install -y $APT_PKGS && rm -rf /var/lib/apt/lists/*
 fi
 
-mkdir -p /home/vscode/.local/bin
+REMOTE_USER_HOME="${_REMOTE_USER_HOME:-/home/vscode}"
+mkdir -p "$REMOTE_USER_HOME/.local/bin"
+
+# Architecture detection — amd64 uses tar.gz, arm64 uses raw binary.
+DEVPOD_ARCH="$(uname -m)"
+case "$DEVPOD_ARCH" in
+  x86_64)
+    DEVPOD_ASSET="DevPod_linux_x86_64.tar.gz"
+    DEVPOD_SHA256="6c5bd63326f92a45707604970d70f6a8cc2c5ffffe703e0903a0c3ded4c042ab"
+    DEVPOD_IS_TARGZ=1
+    ;;
+  aarch64|arm64)
+    DEVPOD_ASSET="devpod-linux-arm64"
+    DEVPOD_SHA256="9226161e0c9f5a45d0f8d1778f940498e787b650f0e0fcf3c29f1f67e7a3f272"
+    DEVPOD_IS_TARGZ=0
+    ;;
+  *)
+    echo "devpod: unsupported architecture $DEVPOD_ARCH" >&2
+    exit 1
+    ;;
+esac
 
 # Pinned release tag — avoids mutable releases/latest URL (CWE-494).
-DEVPOD_URL="https://github.com/loft-sh/devpod/releases/download/${DEVPOD_VERSION}/DevPod_linux_x86_64.tar.gz"
-# SHA-256 of the v0.6.15 release artifact (CWE-494: integrity verification).
-DEVPOD_SHA256="6c5bd63326f92a45707604970d70f6a8cc2c5ffffe703e0903a0c3ded4c042ab"
+DEVPOD_URL="https://github.com/loft-sh/devpod/releases/download/${DEVPOD_VERSION}/${DEVPOD_ASSET}"
 
 # Download to mktemp-allocated files (CWE-377: avoid predictable /tmp paths).
 # --proto =https blocks HTTP redirect hijacking.
-DEVPOD_TGZ="$(mktemp)"
+DEVPOD_TMP="$(mktemp)"
 DEVPOD_EXTRACT_DIR="$(mktemp -d)"
-trap 'rm -f "$DEVPOD_TGZ"; rm -rf "$DEVPOD_EXTRACT_DIR"' EXIT
+trap 'rm -f "$DEVPOD_TMP"; rm -rf "$DEVPOD_EXTRACT_DIR"' EXIT
 
-curl -fsSL --proto =https "$DEVPOD_URL" -o "$DEVPOD_TGZ"
-printf '%s  %s\n' "$DEVPOD_SHA256" "$DEVPOD_TGZ" | sha256sum -c -
+curl -fsSL --proto =https "$DEVPOD_URL" -o "$DEVPOD_TMP"
+printf '%s  %s\n' "$DEVPOD_SHA256" "$DEVPOD_TMP" | sha256sum -c -
 
-tar -xzf "$DEVPOD_TGZ" -C "$DEVPOD_EXTRACT_DIR" devpod 2>/dev/null || tar -xzf "$DEVPOD_TGZ" -C "$DEVPOD_EXTRACT_DIR" 2>/dev/null || true
-if [ -f "$DEVPOD_EXTRACT_DIR/devpod" ]; then
-  install -m 755 "$DEVPOD_EXTRACT_DIR/devpod" /home/vscode/.local/bin/devpod
-elif [ -f "$DEVPOD_EXTRACT_DIR/devpod-linux-amd64" ]; then
-  install -m 755 "$DEVPOD_EXTRACT_DIR/devpod-linux-amd64" /home/vscode/.local/bin/devpod
+if [ "$DEVPOD_IS_TARGZ" = "1" ]; then
+  tar -xzf "$DEVPOD_TMP" -C "$DEVPOD_EXTRACT_DIR"
+  if [ -f "$DEVPOD_EXTRACT_DIR/devpod" ]; then
+    install -m 755 "$DEVPOD_EXTRACT_DIR/devpod" "$REMOTE_USER_HOME/.local/bin/devpod"
+  elif [ -f "$DEVPOD_EXTRACT_DIR/devpod-linux-amd64" ]; then
+    install -m 755 "$DEVPOD_EXTRACT_DIR/devpod-linux-amd64" "$REMOTE_USER_HOME/.local/bin/devpod"
+  else
+    echo "devpod: binary not found in archive after extraction" >&2
+    exit 1
+  fi
+else
+  install -m 755 "$DEVPOD_TMP" "$REMOTE_USER_HOME/.local/bin/devpod"
 fi
 
 # Group permissions for home directory data dirs, but keep binary non-group-writable
-chgrp -R 0 /home/vscode/.local 2>/dev/null || true
-find /home/vscode/.local -type d -exec chmod g+rwX {} + 2>/dev/null || true
+chgrp -R 0 "$REMOTE_USER_HOME/.local" 2>/dev/null || true
+find "$REMOTE_USER_HOME/.local" -type d -exec chmod g+rwX {} + 2>/dev/null || true
 
-echo "devpod: agent installed to /home/vscode/.local/bin/devpod"
+echo "devpod: agent installed to $REMOTE_USER_HOME/.local/bin/devpod"
