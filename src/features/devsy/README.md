@@ -12,11 +12,7 @@ Downloads the Devsy agent binary at build time. Detects CPU architecture (`x86_6
 
 Disabled by default — test native injection first, enable this feature only if injection fails.
 
-## Options
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `version` | string | `"v1.16.2"` | Pinned Devsy release version to download |
+The Devsy version is pinned to `v1.16.2` with SHA-256 integrity verification. There are no user-configurable options; upgrading requires updating the pinned version and checksums in `install.sh`.
 
 ## Usage
 
@@ -24,9 +20,7 @@ Disabled by default — test native injection first, enable this feature only if
 {
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
   "features": {
-    "ghcr.io/docker-x/devcontainer/devsy:1": {
-      "version": "v1.16.2"
-    }
+    "ghcr.io/docker-x/devcontainer/devsy:1": {}
   }
 }
 ```
