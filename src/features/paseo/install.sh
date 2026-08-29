@@ -37,7 +37,8 @@ mkdir -p "${REMOTE_USER_HOME}/.paseo"
 echo "export PASEO_HOME=${REMOTE_USER_HOME}/.paseo" > /etc/profile.d/paseo-home.sh
 chmod 0644 /etc/profile.d/paseo-home.sh
 if grep -q 'PASEO_HOME=' /etc/environment 2>/dev/null; then
-    sed -i "s|PASEO_HOME=.*|PASEO_HOME=${REMOTE_USER_HOME}/.paseo|" /etc/environment
+    ESCAPED_HOME=$(printf '%s\n' "${REMOTE_USER_HOME}/.paseo" | sed 's/[&|]/\\&/g')
+    sed -i "s|PASEO_HOME=.*|PASEO_HOME=${ESCAPED_HOME}|" /etc/environment
 else
     echo "PASEO_HOME=${REMOTE_USER_HOME}/.paseo" >> /etc/environment
 fi
@@ -52,9 +53,10 @@ for dir in "${REMOTE_USER_HOME}/.paseo" "${REMOTE_USER_HOME}/.config/environment
     chmod -R g+rwX "$dir" 2>/dev/null || true
   fi
 done
-# Make /home/vscode itself group-traversable but not group-writable
+# Make home dir group-writable for OpenShift random UID compat (group 0 can create dirs)
+# but don't recursively chmod (only the dir itself, not all contents)
 chgrp 0 "${REMOTE_USER_HOME}" 2>/dev/null || true
-chmod 2755 "${REMOTE_USER_HOME}" 2>/dev/null || true
+chmod 2775 "${REMOTE_USER_HOME}" 2>/dev/null || true
 
 # Create a runtime-writable bin dir instead of making /usr/local/bin group-writable
 RUNTIME_BIN="/usr/local/share/runtime-bin"
@@ -74,7 +76,7 @@ chmod -R g+rwX /usr/local/share/agent-config 2>/dev/null || true
 cat > /etc/profile.d/paseo-perms.sh << 'PERMEOF'
 # Fix permissions on agent-config dirs at shell startup (catches dirs created after paseo install)
 for dir in "$HOME/.paseo" "$HOME/.agents" "$HOME/.config/environment.d"; do
-  if [[ -d "$dir" ]]; then
+  if [ -d "$dir" ]; then
     chgrp -R 0 "$dir" 2>/dev/null || true
     chmod -R g+rwX "$dir" 2>/dev/null || true
   fi
