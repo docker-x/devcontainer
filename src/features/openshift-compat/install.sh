@@ -141,18 +141,35 @@ SUDOEOF
 chmod +x /usr/local/bin/sudo
 
 # --- Pre-install Devsy agent binary ---
-if [ "$INSTALL_DEVSY_AGENT" = "true" ]; then
+if [[ "$INSTALL_DEVSY_AGENT" == "true" ]]; then
   echo "openshift-compat: pre-installing Devsy agent binary"
   if ! command -v curl >/dev/null 2>&1; then
     apt-get update -y && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
   fi
+  # Select architecture-appropriate release asset (reject unsupported archs)
+  DEVSY_ARCH="$(uname -m)"
+  case "$DEVSY_ARCH" in
+    x86_64) DEVSY_ASSET="devsy-linux-amd64" ;;
+    aarch64|arm64) DEVSY_ASSET="devsy-linux-arm64" ;;
+    *) echo "openshift-compat: unsupported architecture $DEVSY_ARCH for Devsy agent" >&2; exit 1 ;;
+  esac
+  DEVSY_URL="https://github.com/devsy-org/devsy/releases/latest/download/${DEVSY_ASSET}"
+  # Download once to a temp file; --proto =https blocks HTTP redirect hijacking
+  curl -fsSL --proto =https "$DEVSY_URL" -o /tmp/devsy-binary
+  # /usr/local/bin — always on PATH, not hidden by PVC home mounts
+  install -m 755 /tmp/devsy-binary /usr/local/bin/devsy
+  # /home/vscode/.local/bin — home-based PATH (may be hidden by PVC)
   mkdir -p /home/vscode/.local/bin
-  DEVSY_URL="https://github.com/devsy-org/devsy/releases/latest/download/devsy-linux-amd64"
-  curl -fsSL "$DEVSY_URL" -o /home/vscode/.local/bin/devsy
-  chmod 755 /home/vscode/.local/bin/devsy 2>/dev/null || true
+  install -m 755 /tmp/devsy-binary /home/vscode/.local/bin/devsy
+  # /etc/skel/.local/bin — repopulated into home on first PVC boot by entrypoint
+  mkdir -p /etc/skel/.local/bin
+  install -m 755 /tmp/devsy-binary /etc/skel/.local/bin/devsy
+  rm -f /tmp/devsy-binary
+  # Group permissions for home directory data dirs, but keep binary non-group-writable
   chgrp -R 0 /home/vscode/.local 2>/dev/null || true
-  chmod -R g+rwX /home/vscode/.local 2>/dev/null || true
-  echo "openshift-compat: Devsy agent installed to /home/vscode/.local/bin/devsy"
+  find /home/vscode/.local -type d -exec chmod g+rwX {} + 2>/dev/null || true
+  chmod 755 /home/vscode/.local/bin/devsy 2>/dev/null || true
+  echo "openshift-compat: Devsy agent installed to /usr/local/bin/devsy, /home/vscode/.local/bin/devsy, /etc/skel/.local/bin/devsy"
 fi
 
 # --- Pre-install DevPod agent binary (legacy, kept for rollback) ---
