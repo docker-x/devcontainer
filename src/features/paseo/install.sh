@@ -36,21 +36,25 @@ mkdir -p "${REMOTE_USER_HOME}/.paseo"
 
 echo "export PASEO_HOME=${REMOTE_USER_HOME}/.paseo" > /etc/profile.d/paseo-home.sh
 chmod 0644 /etc/profile.d/paseo-home.sh
-grep -q PASEO_HOME /etc/environment 2>/dev/null || echo "PASEO_HOME=${REMOTE_USER_HOME}/.paseo" >> /etc/environment
+if grep -q 'PASEO_HOME=' /etc/environment 2>/dev/null; then
+    sed -i "s|PASEO_HOME=.*|PASEO_HOME=${REMOTE_USER_HOME}/.paseo|" /etc/environment
+else
+    echo "PASEO_HOME=${REMOTE_USER_HOME}/.paseo" >> /etc/environment
+fi
 
 echo "Paseo CLI installed successfully!"
 
 # Permission fix: only fix permissions on paseo-specific dirs, not all of /home/vscode
 echo "Paseo: fixing permissions for OpenShift compatibility"
-for dir in /home/vscode/.paseo /home/vscode/.config/environment.d /home/vscode/.agents; do
-  if [ -d "$dir" ]; then
+for dir in "${REMOTE_USER_HOME}/.paseo" "${REMOTE_USER_HOME}/.config/environment.d" "${REMOTE_USER_HOME}/.agents"; do
+  if [[ -d "$dir" ]]; then
     chgrp -R 0 "$dir" 2>/dev/null || true
     chmod -R g+rwX "$dir" 2>/dev/null || true
   fi
 done
 # Make /home/vscode itself group-traversable but not group-writable
-chgrp 0 /home/vscode 2>/dev/null || true
-chmod 2775 /home/vscode 2>/dev/null || true
+chgrp 0 "${REMOTE_USER_HOME}" 2>/dev/null || true
+chmod 2755 "${REMOTE_USER_HOME}" 2>/dev/null || true
 
 # Create a runtime-writable bin dir instead of making /usr/local/bin group-writable
 RUNTIME_BIN="/usr/local/share/runtime-bin"
@@ -58,7 +62,7 @@ mkdir -p "$RUNTIME_BIN"
 chgrp 0 "$RUNTIME_BIN" 2>/dev/null || true
 chmod g+w "$RUNTIME_BIN" 2>/dev/null || true
 # Add to PATH via profile.d
-echo 'export PATH="/usr/local/share/runtime-bin:$PATH"' > /etc/profile.d/runtime-bin.sh
+echo 'export PATH="$PATH:/usr/local/share/runtime-bin"' > /etc/profile.d/runtime-bin.sh
 chmod 0644 /etc/profile.d/runtime-bin.sh
 
 # Fix /usr/local/share/agent-config so runtime UID can write to config dirs
@@ -70,7 +74,7 @@ chmod -R g+rwX /usr/local/share/agent-config 2>/dev/null || true
 cat > /etc/profile.d/paseo-perms.sh << 'PERMEOF'
 # Fix permissions on agent-config dirs at shell startup (catches dirs created after paseo install)
 for dir in "$HOME/.paseo" "$HOME/.agents" "$HOME/.config/environment.d"; do
-  if [ -d "$dir" ]; then
+  if [[ -d "$dir" ]]; then
     chgrp -R 0 "$dir" 2>/dev/null || true
     chmod -R g+rwX "$dir" 2>/dev/null || true
   fi
