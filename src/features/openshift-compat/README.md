@@ -16,7 +16,7 @@ OpenShift restricted SCC assigns a random UID/GID at runtime, blocks privilege e
 
 ## What it does NOT do
 
-Agent binary pre-install (Devsy/DevPod) is handled by the separate **workspace-agent** feature. This keeps OpenShift compatibility concerns (SCC, UID, SSH) separate from orchestrator-specific concerns (which agent binary to install).
+Agent binary pre-install (Devsy/DevPod) is handled by the separate **devsy** and **devpod** features. This keeps OpenShift compatibility concerns (SCC, UID, SSH) separate from orchestrator-specific concerns (which agent binary to install).
 
 ## Options
 
