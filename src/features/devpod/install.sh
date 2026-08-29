@@ -55,13 +55,9 @@ printf '%s  %s\n' "$DEVPOD_SHA256" "$DEVPOD_TMP" | sha256sum -c -
 
 if [ "$DEVPOD_IS_TARGZ" = "1" ]; then
   tar -xzf "$DEVPOD_TMP" -C "$DEVPOD_EXTRACT_DIR"
-  # The DevPod tar.gz contains the CLI at usr/bin/devpod-cli
+  # The tar.gz contains the CLI at usr/bin/devpod-cli (not a root-level binary).
   if [ -f "$DEVPOD_EXTRACT_DIR/usr/bin/devpod-cli" ]; then
     install -m 755 "$DEVPOD_EXTRACT_DIR/usr/bin/devpod-cli" "$REMOTE_USER_HOME/.local/bin/devpod"
-  elif [ -f "$DEVPOD_EXTRACT_DIR/devpod" ]; then
-    install -m 755 "$DEVPOD_EXTRACT_DIR/devpod" "$REMOTE_USER_HOME/.local/bin/devpod"
-  elif [ -f "$DEVPOD_EXTRACT_DIR/devpod-linux-amd64" ]; then
-    install -m 755 "$DEVPOD_EXTRACT_DIR/devpod-linux-amd64" "$REMOTE_USER_HOME/.local/bin/devpod"
   else
     echo "devpod: binary not found in archive after extraction" >&2
     exit 1

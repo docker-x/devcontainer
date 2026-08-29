@@ -10,9 +10,9 @@ Downloads the Devsy agent binary at build time. Detects CPU architecture (`x86_6
 - `/home/vscode/.local/bin/devsy` — home-based PATH
 - `/etc/skel/.local/bin/devsy` — repopulated into home on first PVC boot by the openshift-compat entrypoint
 
-Disabled by default — test native injection first, enable this feature only if injection fails.
+The Devsy version is pinned to `v1.16.2` with hardcoded SHA-256 checksums for integrity verification. To update the version, edit `install.sh` and update both the version and the per-architecture checksums.
 
-The Devsy version is pinned to `v1.16.2` with SHA-256 integrity verification. There are no user-configurable options; upgrading requires updating the pinned version and checksums in `install.sh`.
+Disabled by default — test native injection first, enable this feature only if injection fails.
 
 ## Usage
 
