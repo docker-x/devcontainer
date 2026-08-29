@@ -48,7 +48,9 @@ run_as_user() {
     for arg in "$@"; do
       cmd_args+=("$(printf '%q' "$arg")")
     done
-    su -s /bin/bash "$REMOTE_USER" -c "export HOME='${HOME_DIR}'; exec ${cmd_args[*]}"
+    local escaped_home
+    escaped_home=$(printf '%q' "${HOME_DIR}")
+    su -s /bin/bash "$REMOTE_USER" -c "export HOME=${escaped_home}; exec ${cmd_args[*]}"
   fi
 }
 
