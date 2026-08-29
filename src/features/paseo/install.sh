@@ -64,7 +64,7 @@ mkdir -p "$RUNTIME_BIN"
 chgrp 0 "$RUNTIME_BIN" 2>/dev/null || true
 chmod g+w "$RUNTIME_BIN" 2>/dev/null || true
 # Add to PATH via profile.d
-echo 'export PATH="$PATH:/usr/local/share/runtime-bin"' > /etc/profile.d/runtime-bin.sh
+echo "export PATH=\"\$PATH:/usr/local/share/runtime-bin\"" > /etc/profile.d/runtime-bin.sh
 chmod 0644 /etc/profile.d/runtime-bin.sh
 
 # Fix /usr/local/share/agent-config so runtime UID can write to config dirs
@@ -73,12 +73,13 @@ chgrp -R 0 /usr/local/share/agent-config 2>/dev/null || true
 chmod -R g+rwX /usr/local/share/agent-config 2>/dev/null || true
 
 # Defer permission fix to runtime via profile.d, so it catches dirs created by later features
+# Non-recursive: only fix the dir itself (setgid bit on home ensures children inherit group 0)
 cat > /etc/profile.d/paseo-perms.sh << 'PERMEOF'
-# Fix permissions on agent-config dirs at shell startup (catches dirs created after paseo install)
+# Fix permissions on agent dirs at shell startup (catches dirs created after paseo install)
 for dir in "$HOME/.paseo" "$HOME/.agents" "$HOME/.config/environment.d"; do
   if [ -d "$dir" ]; then
-    chgrp -R 0 "$dir" 2>/dev/null || true
-    chmod -R g+rwX "$dir" 2>/dev/null || true
+    chgrp 0 "$dir" 2>/dev/null || true
+    chmod g+rwX "$dir" 2>/dev/null || true
   fi
 done
 PERMEOF
