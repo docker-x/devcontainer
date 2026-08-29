@@ -17,9 +17,9 @@ export HOME="${REMOTE_USER_HOME}"
 BUN_INSTALL_DIR="${HOME}/.bun"
 
 # Run the official Bun installer as the remote user so files are owned correctly.
-INSTALL_CMD="curl -fsSL https://bun.sh/install | HOME='$HOME' bash"
+INSTALL_CMD="curl --proto =https -fsSL https://bun.sh/install | HOME='$HOME' bash"
 if [[ "$VERSION" != "latest" ]]; then
-    INSTALL_CMD="curl -fsSL https://bun.sh/install | HOME='$HOME' bash -s '$VERSION'"
+    INSTALL_CMD="curl --proto =https -fsSL https://bun.sh/install | HOME='$HOME' bash -s '$VERSION'"
 fi
 
 if [[ "$REMOTE_USER" == "root" ]]; then

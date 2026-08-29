@@ -39,7 +39,7 @@ fi
 
 if [[ $HERDR_INSTALLED -eq 0 ]]; then
     set +e
-    curl -fsSL https://herdr.ai/install.sh -o /tmp/herdr-install.sh
+    curl --proto =https -fsSL https://herdr.ai/install.sh -o /tmp/herdr-install.sh
     CURL_RC=$?
     set -e
     if [[ $CURL_RC -ne 0 ]]; then

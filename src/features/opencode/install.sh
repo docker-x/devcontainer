@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -eo pipefail
 
 # OpenCode AI Installation Script (non-interactive)
 
@@ -31,8 +31,15 @@ case "$INSTALL_METHOD" in
         # Copy binary to /usr/local/bin for system-wide access
         OPENCODE_BIN="$(command -v opencode || true)"
         if [[ -z "$OPENCODE_BIN" ]]; then
-            NPM_GLOBAL_BIN="$(npm bin -g 2>/dev/null || npm config get prefix 2>/dev/null)/bin"
+            NPM_GLOBAL_BIN="$(npm bin -g 2>/dev/null || true)"
+            if [[ -z "$NPM_GLOBAL_BIN" ]]; then
+                NPM_GLOBAL_BIN="$(npm config get prefix 2>/dev/null)/bin"
+            fi
             OPENCODE_BIN="$NPM_GLOBAL_BIN/opencode"
+            # If the candidate doesn't exist, try $HOME/.local/bin
+            if [[ ! -x "$OPENCODE_BIN" ]]; then
+                OPENCODE_BIN="${REMOTE_USER_HOME:-$HOME}/.local/bin/opencode"
+            fi
         fi
         if [[ ! -x "$OPENCODE_BIN" ]]; then
             echo "OpenCode installation failed: binary not found at $OPENCODE_BIN" >&2
@@ -44,7 +51,19 @@ case "$INSTALL_METHOD" in
         ;;
 
     script)
-        curl -fsSL https://opencode.ai/install.sh -o /tmp/opencode-install.sh && bash /tmp/opencode-install.sh && rm -f /tmp/opencode-install.sh
+        curl --proto =https -fsSL https://opencode.ai/install.sh -o /tmp/opencode-install.sh
+        if [[ ! -s /tmp/opencode-install.sh ]]; then
+            echo "OpenCode installation failed: install script is empty" >&2
+            rm -f /tmp/opencode-install.sh
+            exit 1
+        fi
+        if ! bash -n /tmp/opencode-install.sh 2>/dev/null; then
+            echo "OpenCode installation failed: install script has invalid Bash syntax" >&2
+            rm -f /tmp/opencode-install.sh
+            exit 1
+        fi
+        bash /tmp/opencode-install.sh
+        rm -f /tmp/opencode-install.sh
         # Ensure binary is available system-wide
         OPENCODE_BIN="$(command -v opencode || true)"
         if [[ -z "$OPENCODE_BIN" ]]; then
