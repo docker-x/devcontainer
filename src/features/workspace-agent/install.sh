@@ -33,8 +33,8 @@ if [[ "$INSTALL_DEVSY_AGENT" == "true" ]]; then
   # Select architecture-appropriate release asset (reject unsupported archs)
   DEVSY_ARCH="$(uname -m)"
   case "$DEVSY_ARCH" in
-    x86_64) DEVSY_ASSET="devsy-linux-amd64" ;;
-    aarch64|arm64) DEVSY_ASSET="devsy-linux-arm64" ;;
+    x86_64) DEVSY_ASSET="devsy-linux-amd64"; DEVSY_SHA256="4983c52a3536c5a91d1b5f356a1c3428778ebf3f896d9897f60bce3978abc839" ;;
+    aarch64|arm64) DEVSY_ASSET="devsy-linux-arm64"; DEVSY_SHA256="31060b96486b5398f2aa3ee0875b2555782a2db0954a799d387be38ed4b4990d" ;;
     *) echo "workspace-agent: unsupported architecture $DEVSY_ARCH for Devsy agent" >&2; exit 1 ;;
   esac
   # Pinned release tag — avoids mutable releases/latest URL (CWE-494).
@@ -44,6 +44,8 @@ if [[ "$INSTALL_DEVSY_AGENT" == "true" ]]; then
   DEVSY_TMP="$(mktemp)"
   trap 'rm -f "$DEVSY_TMP"' EXIT
   curl -fsSL --proto =https "$DEVSY_URL" -o "$DEVSY_TMP"
+  # Verify SHA-256 digest (CWE-494: integrity check for downloaded binary).
+  printf '%s  %s\n' "$DEVSY_SHA256" "$DEVSY_TMP" | sha256sum -c -
   # /usr/local/bin — always on PATH, not hidden by PVC home mounts
   install -m 755 "$DEVSY_TMP" /usr/local/bin/devsy
   # /home/vscode/.local/bin — home-based PATH (may be hidden by PVC)
