@@ -1,12 +1,10 @@
 {
   "id": "openshift-compat",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "name": "OpenShift Compatibility",
-  "description": "Make devcontainer images compatible with OpenShift restricted SCC: SSH server, random UID support, fake sudo, group-writable home, optional Devsy/DevPod agent pre-install.",
+  "description": "Make devcontainer images compatible with OpenShift restricted SCC: SSH server, random UID support, fake sudo, group-writable home, entrypoint with Paseo startup.",
   "keywords": [
     "openshift",
-    "devpod",
-    "devsy",
     "ssh",
     "security",
     "scc"
@@ -16,16 +14,6 @@
       "type": "string",
       "default": "2222",
       "description": "Port for the SSH server to listen on"
-    },
-    "installDevsyAgent": {
-      "type": "boolean",
-      "default": false,
-      "description": "Pre-install the Devsy agent binary (fallback if native injection fails on OpenShift)"
-    },
-    "installDevpodAgent": {
-      "type": "boolean",
-      "default": false,
-      "description": "Pre-install the DevPod agent binary (legacy, kept for rollback during migration)"
     }
   },
   "installsAfter": [

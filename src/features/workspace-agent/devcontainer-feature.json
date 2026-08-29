@@ -1,0 +1,33 @@
+{
+  "id": "workspace-agent",
+  "version": "1.0.0",
+  "name": "Workspace Agent (Devsy/DevPod)",
+  "description": "Pre-install Devsy or DevPod agent binaries at build time. Fallback for orchestrators where native agent injection fails (e.g. OpenShift restricted SCC).",
+  "keywords": [
+    "devsy",
+    "devpod",
+    "agent",
+    "openshift",
+    "scc"
+  ],
+  "options": {
+    "installDevsyAgent": {
+      "type": "boolean",
+      "default": false,
+      "description": "Pre-install the Devsy agent binary (fallback if native injection fails on OpenShift)"
+    },
+    "installDevpodAgent": {
+      "type": "boolean",
+      "default": false,
+      "description": "Pre-install the DevPod agent binary (legacy, kept for rollback during migration)"
+    },
+    "devsyVersion": {
+      "type": "string",
+      "default": "v1.16.2",
+      "description": "Pinned Devsy release version to download"
+    }
+  },
+  "installsAfter": [
+    "ghcr.io/devcontainers/features/common-utils"
+  ]
+}
