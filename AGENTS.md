@@ -35,8 +35,8 @@ src/templates/<id>/
 
 ### `install.sh`
 Most install scripts in this repo follow these conventions — match them
-(see `bun`, `codex`, `devsy` for reference). A few features that don't
-install user-scoped tools (`playwright`, `sacp-conductor`, `openshift-compat`)
+(see `bun`, `codex`, `devsy` for reference). A few features that predate
+this convention (`playwright`, `sacp-conductor`, `openshift-compat`)
 omit the `_REMOTE_USER` chain below — that's expected.
 
 - Start with `#!/bin/bash` + `set -e`.
@@ -90,11 +90,11 @@ not when it is `/`. This caused 6 Devin sessions to be written to ephemeral
 
 **Rule:** in entrypoints and runtime scripts, assign unconditionally:
 `export HOME="/home/vscode"`. The `${a:-${b:-c}}` chain above is fine for
-`_REMOTE_USER` etc. because those are genuinely unset when absent — `HOME`
-is the exception because OpenShift actively sets it to a bad value. Same
-applies to any env var a restricted SCC may set to a surprising value
-(`XDG_*`, `TMPDIR`). Exception: in documented local-only debug contexts,
-`:-` fallbacks are acceptable.
+`_REMOTE_USER` etc. because the platform never sets those to a surprising
+value — `HOME` is the exception because OpenShift actively sets it to a
+bad value. Same applies to any env var a restricted SCC may set to a
+surprising value (`XDG_*`, `TMPDIR`). Exception: in documented local-only
+debug contexts, `:-` fallbacks are acceptable.
 
 ### Verify actual write paths before recreating pods
 Before any pod/container recreation, confirm tools write where you think:
