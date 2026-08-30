@@ -88,14 +88,17 @@ not when it is `/`. This caused 6 Devin sessions to be written to ephemeral
 **Rule:** in entrypoints and runtime scripts, assign unconditionally:
 `export HOME="/home/vscode"`. The `${a:-${b:-c}}` chain above is fine for
 `_REMOTE_USER` etc. because those are genuinely unset when absent — `HOME`
-is the exception because OpenShift actively sets it to a bad value.
+is the exception because OpenShift actively sets it to a bad value. Same
+applies to any env var a restricted SCC may set to a surprising value
+(`XDG_*`, `TMPDIR`). Exception: in documented local-only debug contexts,
+`:-` fallbacks are acceptable.
 
 ### Verify actual write paths before recreating pods
 Before any pod/container recreation, confirm tools write where you think:
-1. `echo "$HOME"` — must be the PVC-backed home, not `/`.
+1. `echo "$HOME"` — must be the PVC-backed home, not `/`. If it is `/`, **stop and alert a human** before proceeding.
 2. `du -sh ~/.local/share/<tool>/` — confirm the path is non-empty and on the PVC.
 3. `readlink -f ~/.local/share/<tool>` — confirm the symlink target is on the PVC.
-4. Confirm the backup source path matches the *actual* write path from step 2.
+4. Confirm the backup source path matches the *actual* write path from step 3.
 
 ### Persistence stores are independent
 "Paseo agent metadata survived" does NOT mean "Devin sessions survived."
