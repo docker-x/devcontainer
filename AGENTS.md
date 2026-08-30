@@ -34,7 +34,10 @@ src/templates/<id>/
   the feature is repo-specific.
 
 ### `install.sh`
-Every install script in this repo follows these conventions — match them:
+Most install scripts in this repo follow these conventions — match them
+(see `bun`, `codex`, `devsy` for reference). A few features that don't
+install user-scoped tools (`playwright`, `sacp-conductor`, `openshift-compat`)
+omit the `_REMOTE_USER` chain below — that's expected.
 
 - Start with `#!/bin/bash` + `set -e`.
 - Resolve the remote user and home portably:
@@ -43,8 +46,8 @@ Every install script in this repo follows these conventions — match them:
   REMOTE_USER_HOME="${_REMOTE_USER_HOME:-$(getent passwd "$REMOTE_USER" 2>/dev/null | cut -d: -f6)}"
   REMOTE_USER_HOME="${REMOTE_USER_HOME:-/home/vscode}"
   ```
-  This `${a:-${b:-c}}` chain is correct here because these vars are *unset*
-  when not provided — unlike `HOME` (see Lessons below).
+  This `${a:-${b:-c}}` chain is correct here because the platform never
+  sets these vars to a surprising value — unlike `HOME` (see Lessons below).
 - Download binaries to a `mktemp -d` directory, not a fixed path (CWE-377).
 - Verify downloaded artifacts with SHA-256 before executing (CWE-494). See
   `src/features/devsy/install.sh` for the pattern.
