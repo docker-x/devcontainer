@@ -41,12 +41,19 @@ fi
 
 # flock is provided by util-linux, which is present on Ubuntu by default.
 # Verify required tools are available (apt-get may have been skipped or failed)
-for tool in jq curl tar; do
+# jq is optional — the github_latest_tag fallback uses sed instead
+for tool in curl tar; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         echo "Error: required tool '$tool' not found. Install it manually or ensure apt-get is available." >&2
         exit 1
     fi
 done
+if ! command -v jq >/dev/null 2>&1; then
+    echo "Warning: jq not found; falling back to redirect-based tag detection" >&2
+fi
+if ! command -v tmux >/dev/null 2>&1; then
+    echo "Warning: tmux not found; gascity requires it at runtime" >&2
+fi
 if ! command -v flock >/dev/null 2>&1; then
     echo "Warning: flock not found on PATH (util-linux expected on Ubuntu)." >&2
 fi
@@ -59,13 +66,13 @@ github_latest_tag() {
     local repo="$1"
     local tag=""
     set +e
-    tag="$(curl -fsSL "https://api.github.com/repos/${repo}/releases/latest" \
+    tag="$(curl --proto =https -fsSL "https://api.github.com/repos/${repo}/releases/latest" \
         | jq -r '.tag_name // empty' 2>/dev/null)"
     set -e
     if [ -z "$tag" ]; then
         # Fallback: parse the redirect target of the /latest tag URL.
         set +e
-        tag="$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+        tag="$(curl --proto =https -fsSLI -o /dev/null -w '%{url_effective}' \
             "https://github.com/${repo}/releases/latest" 2>/dev/null \
             | sed -n 's|.*/tag/\(.*\)|\1|p')"
         set -e
@@ -100,7 +107,7 @@ install_gascity() {
     echo "Installing Gas City ${tag} from ${url}..."
     local tmpdir; tmpdir="$(mktemp -d)"
     trap 'rm -rf "$tmpdir"' RETURN
-    curl -fsSL "$url" -o "$tmpdir/$asset"
+    curl --proto =https -fsSL "$url" -o "$tmpdir/$asset"
     tar -xzf "$tmpdir/$asset" -C "$tmpdir"
 
     if [ ! -f "$tmpdir/gc" ]; then
@@ -126,7 +133,7 @@ install_dolt() {
     echo "Installing Dolt ${tag} from ${url}..."
     local tmpdir; tmpdir="$(mktemp -d)"
     trap 'rm -rf "$tmpdir"' RETURN
-    curl -fsSL "$url" -o "$tmpdir/$asset"
+    curl --proto =https -fsSL "$url" -o "$tmpdir/$asset"
     tar -xzf "$tmpdir/$asset" -C "$tmpdir"
 
     # Dolt tarball layout: either ./bin/dolt or ./dolt
@@ -161,7 +168,7 @@ install_beads() {
     echo "Installing beads ${tag} from ${url}..."
     local tmpdir; tmpdir="$(mktemp -d)"
     trap 'rm -rf "$tmpdir"' RETURN
-    curl -fsSL "$url" -o "$tmpdir/$asset"
+    curl --proto =https -fsSL "$url" -o "$tmpdir/$asset"
     tar -xzf "$tmpdir/$asset" -C "$tmpdir"
 
     # beads tarball layout: either ./bd or ./bin/bd
