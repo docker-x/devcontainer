@@ -72,8 +72,9 @@ fi
 HERDR_BIN="$(command -v herdr || true)"
 if [[ -z "$HERDR_BIN" ]] && command -v npm >/dev/null 2>&1; then
     NPM_GLOBAL_BIN="$(npm bin -g 2>/dev/null || true)"
-    if [[ -z "$NPM_GLOBAL_BIN" ]]; then
-        NPM_GLOBAL_BIN="$(npm config get prefix 2>/dev/null)/bin"
+    # npm 9+ may print a deprecation diagnostic to stdout; verify the result is a real directory
+    if [[ ! -d "$NPM_GLOBAL_BIN" ]]; then
+        NPM_GLOBAL_BIN="$(npm config get prefix 2>/dev/null || true)/bin"
     fi
     HERDR_BIN="$NPM_GLOBAL_BIN/herdr"
 fi

@@ -23,7 +23,7 @@ fi
 # Run the official installer as the remote user so the agent is installed
 # under the home directory and not as root.
 su -s /bin/bash - "$REMOTE_USER" -c \
-    'NO_COLOR=1 /bin/bash -c "$(curl -fsSL https://cursor.com/install)"'
+    'NO_COLOR=1 /bin/bash -c "$(curl --proto =https -fsSL https://cursor.com/install)"'
 
 # Expose Cursor agent binaries system-wide
 for bin in agent cursor-agent; do

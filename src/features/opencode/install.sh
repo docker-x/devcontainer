@@ -35,8 +35,8 @@ case "$INSTALL_METHOD" in
         OPENCODE_BIN="$(command -v opencode || true)"
         if [[ -z "$OPENCODE_BIN" ]]; then
             NPM_GLOBAL_BIN="$(npm bin -g 2>/dev/null || true)"
-            if [[ -z "$NPM_GLOBAL_BIN" ]]; then
-                NPM_GLOBAL_BIN="$(npm config get prefix 2>/dev/null)/bin"
+            if [[ ! -d "$NPM_GLOBAL_BIN" ]]; then
+                NPM_GLOBAL_BIN="$(npm config get prefix 2>/dev/null || true)/bin"
             fi
             OPENCODE_BIN="$NPM_GLOBAL_BIN/opencode"
             # If the candidate doesn't exist, try $HOME/.local/bin

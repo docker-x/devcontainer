@@ -33,7 +33,7 @@ CODEX_BIN="$(command -v codex || true)"
 if [[ -z "$CODEX_BIN" ]]; then
     # npm global bin may not be on PATH during build; fall back to npm root
     NPM_GLOBAL_BIN="$(npm bin -g 2>/dev/null || true)"
-    if [[ -z "$NPM_GLOBAL_BIN" ]]; then
+    if [[ ! -d "$NPM_GLOBAL_BIN" ]]; then
         NPM_GLOBAL_BIN="$(npm config get prefix 2>/dev/null || true)/bin"
     fi
     CODEX_BIN="$NPM_GLOBAL_BIN/codex"

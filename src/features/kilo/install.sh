@@ -56,7 +56,7 @@ fi
 
 echo "Downloading Kilo from $DOWNLOAD_URL ..."
 TARBALL="$TMP_DIR/kilo.tar.gz"
-if ! curl -fsSL "$DOWNLOAD_URL" -o "$TARBALL"; then
+if ! curl --proto =https -fsSL "$DOWNLOAD_URL" -o "$TARBALL"; then
     echo "Error: failed to download Kilo release asset '$ASSET'" >&2
     echo "       URL: $DOWNLOAD_URL" >&2
     exit 1

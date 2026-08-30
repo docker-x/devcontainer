@@ -56,7 +56,7 @@ manifest_field() {
 case "$INSTALL_METHOD" in
     script)
         INSTALLER="$(mktemp "${TMPDIR:-/tmp}/devin-cli-install.XXXXXX.sh")"
-        curl -fsSL https://cli.devin.ai/install.sh -o "$INSTALLER"
+        curl --proto =https -fsSL https://cli.devin.ai/install.sh -o "$INSTALLER"
         run_upstream_script "$INSTALLER"
         rm -f "$INSTALLER"
         ;;
@@ -69,7 +69,7 @@ case "$INSTALL_METHOD" in
         fi
 
         MANIFEST_URL="https://static.devin.ai/cli/${VERSION_PATH}/manifest.json"
-        MANIFEST="$(curl -fsSL "$MANIFEST_URL")"
+        MANIFEST="$(curl --proto =https -fsSL "$MANIFEST_URL")"
 
         TARGET_RAW=$(uname -m)
         case "$TARGET_RAW" in

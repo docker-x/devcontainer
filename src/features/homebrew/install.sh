@@ -27,7 +27,7 @@ if ! command -v brew &>/dev/null; then
     chown -R "$REMOTE_USER:$REMOTE_USER" /home/linuxbrew
 
     su -s /bin/bash - "$REMOTE_USER" -c \
-        'NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+        'NONINTERACTIVE=1 /bin/bash -c "$(curl --proto =https -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
 fi
 
 # Expose Homebrew to all shells
