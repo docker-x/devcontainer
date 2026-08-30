@@ -92,7 +92,7 @@ case "$INSTALL_METHOD" in
         TMP_TARBALL="$(mktemp "${TMPDIR:-/tmp}/devin.XXXXXX.tar.gz")"
         TMP_EXTRACT="$(mktemp -d "${TMPDIR:-/tmp}/devin-extract.XXXXXX")"
 
-        curl -fSL "$BUNDLE_URL" -o "$TMP_TARBALL"
+        curl --proto =https -fSL "$BUNDLE_URL" -o "$TMP_TARBALL"
 
         ACTUAL_SHA=$(sha256sum "$TMP_TARBALL" | cut -d' ' -f1)
         if [[ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]]; then

@@ -42,7 +42,7 @@ fi
 # flock is provided by util-linux, which is present on Ubuntu by default.
 # Verify required tools are available (apt-get may have been skipped or failed)
 # jq is optional — the github_latest_tag fallback uses sed instead
-for tool in curl tar; do
+for tool in curl tar sed; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         echo "Error: required tool '$tool' not found. Install it manually or ensure apt-get is available." >&2
         exit 1
