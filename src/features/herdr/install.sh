@@ -47,6 +47,16 @@ if [[ $HERDR_INSTALLED -eq 0 ]]; then
         echo "Error: Herdr install script download failed (exit ${CURL_RC}) and npm was unavailable" >&2
         exit 1
     fi
+    if [[ ! -s /tmp/herdr-install.sh ]]; then
+        rm -f /tmp/herdr-install.sh
+        echo "Error: Herdr install script is empty" >&2
+        exit 1
+    fi
+    if ! bash -n /tmp/herdr-install.sh 2>/dev/null; then
+        rm -f /tmp/herdr-install.sh
+        echo "Error: Herdr install script has invalid Bash syntax" >&2
+        exit 1
+    fi
     bash /tmp/herdr-install.sh --version "${VERSION:-latest}"
     CURL_RC=$?
     rm -f /tmp/herdr-install.sh
@@ -60,8 +70,15 @@ fi
 
 # Locate the installed binary and copy it to /usr/local/bin for system-wide access
 HERDR_BIN="$(command -v herdr || true)"
-if [[ -z "$HERDR_BIN" ]]; then
-    HERDR_BIN="$HOME/.local/bin/herdr"
+if [[ -z "$HERDR_BIN" ]] && command -v npm >/dev/null 2>&1; then
+    NPM_GLOBAL_BIN="$(npm bin -g 2>/dev/null || true)"
+    if [[ -z "$NPM_GLOBAL_BIN" ]]; then
+        NPM_GLOBAL_BIN="$(npm config get prefix 2>/dev/null)/bin"
+    fi
+    HERDR_BIN="$NPM_GLOBAL_BIN/herdr"
+fi
+if [[ -z "$HERDR_BIN" ]] || [[ ! -x "$HERDR_BIN" ]]; then
+    HERDR_BIN="${REMOTE_USER_HOME:-$HOME}/.local/bin/herdr"
 fi
 
 if [[ ! -x "$HERDR_BIN" ]]; then

@@ -40,6 +40,13 @@ else
 fi
 
 # flock is provided by util-linux, which is present on Ubuntu by default.
+# Verify required tools are available (apt-get may have been skipped or failed)
+for tool in jq curl tar; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "Error: required tool '$tool' not found. Install it manually or ensure apt-get is available." >&2
+        exit 1
+    fi
+done
 if ! command -v flock >/dev/null 2>&1; then
     echo "Warning: flock not found on PATH (util-linux expected on Ubuntu)." >&2
 fi
