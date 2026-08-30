@@ -20,7 +20,7 @@ Disabled by default — test native injection first, enable this feature only if
 {
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
   "features": {
-    "ghcr.io/docker-x/devcontainer/devsy:1": {}
+    "ghcr.io/docker-x/devcontainers/devsy:1": {}
   }
 }
 ```

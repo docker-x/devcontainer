@@ -12,8 +12,8 @@ Add the feature to your `devcontainer.json`:
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
   "features": {
     "ghcr.io/devcontainers/features/node:latest": {},
-    "ghcr.io/docker-x/devcontainer/agent-config:1": {},
-    "ghcr.io/docker-x/devcontainer/herdr:1": {
+    "ghcr.io/docker-x/devcontainers/agent-config:1": {},
+    "ghcr.io/docker-x/devcontainers/herdr:1": {
       "version": "latest"
     }
   }

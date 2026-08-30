@@ -12,7 +12,7 @@ Downloads the DevPod agent binary to the remote user's `.local/bin/devpod` (defa
 {
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
   "features": {
-    "ghcr.io/docker-x/devcontainer/devpod:1": {}
+    "ghcr.io/docker-x/devcontainers/devpod:1": {}
   }
 }
 ```

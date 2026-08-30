@@ -14,11 +14,11 @@
     "CURSOR_CONFIG_DIR": "/usr/local/share/agent-config/cursor"
   },
   "dependsOn": {
-    "ghcr.io/docker-x/devcontainer/agent-config": {}
+    "ghcr.io/docker-x/devcontainers/agent-config": {}
   },
   "installsAfter": [
     "ghcr.io/devcontainers/features/common-utils",
-    "ghcr.io/docker-x/devcontainer/agent-config"
+    "ghcr.io/docker-x/devcontainers/agent-config"
   ],
   "options": {}
 }

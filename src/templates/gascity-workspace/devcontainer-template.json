@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "name": "Gas City Workspace",
   "description": "A devcontainer for Gas City development with Bun, Playwright, and shared agent config.",
-  "documentationURL": "https://github.com/docker-x/devcontainer",
+  "documentationURL": "https://github.com/docker-x/devcontainers",
   "license": "MIT",
   "platforms": ["Any"],
   "optionalPaths": [

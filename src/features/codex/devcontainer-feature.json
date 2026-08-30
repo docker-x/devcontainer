@@ -13,11 +13,11 @@
     }
   },
   "dependsOn": {
-    "ghcr.io/docker-x/devcontainer/agent-config": {}
+    "ghcr.io/docker-x/devcontainers/agent-config": {}
   },
   "installsAfter": [
     "ghcr.io/devcontainers/features/common-utils",
     "ghcr.io/devcontainers/features/node",
-    "ghcr.io/docker-x/devcontainer/agent-config"
+    "ghcr.io/docker-x/devcontainers/agent-config"
   ]
 }

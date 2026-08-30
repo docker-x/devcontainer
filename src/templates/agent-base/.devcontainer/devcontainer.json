@@ -4,12 +4,12 @@
   "features": {
     "ghcr.io/devcontainers/features/common-utils:2": {},
     "ghcr.io/devcontainers/features/node:1": {},
-    "ghcr.io/docker-x/devcontainer/agent-config:1": {},
-    "ghcr.io/docker-x/devcontainer/devin:1": {},
-    "ghcr.io/docker-x/devcontainer/claude:1": {},
-    "ghcr.io/docker-x/devcontainer/cursor:1": {},
-    "ghcr.io/docker-x/devcontainer/bob:1": {},
-    "ghcr.io/docker-x/devcontainer/kilo:1": {}
+    "ghcr.io/docker-x/devcontainers/agent-config:1": {},
+    "ghcr.io/docker-x/devcontainers/devin:1": {},
+    "ghcr.io/docker-x/devcontainers/claude:1": {},
+    "ghcr.io/docker-x/devcontainers/cursor:1": {},
+    "ghcr.io/docker-x/devcontainers/bob:1": {},
+    "ghcr.io/docker-x/devcontainers/kilo:1": {}
   },
   "containerEnv": {
     "AGENT_CONFIG_DIR": "/usr/local/share/agent-config"

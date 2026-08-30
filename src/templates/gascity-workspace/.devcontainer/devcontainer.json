@@ -3,16 +3,16 @@
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
   "features": {
     "ghcr.io/devcontainers/features/common-utils:2": {},
-    "ghcr.io/docker-x/devcontainer/agent-config:1": {},
-    "ghcr.io/docker-x/devcontainer/gascity:1": {
+    "ghcr.io/docker-x/devcontainers/agent-config:1": {},
+    "ghcr.io/docker-x/devcontainers/gascity:1": {
       "autoRegister": false
     },
-    "ghcr.io/docker-x/devcontainer/bun:1": {},
-    "ghcr.io/docker-x/devcontainer/playwright:1": {
+    "ghcr.io/docker-x/devcontainers/bun:1": {},
+    "ghcr.io/docker-x/devcontainers/playwright:1": {
       "browsers": "chromium",
       "installMethod": "auto"
     },
-    "ghcr.io/docker-x/devcontainer/sacp-conductor:1": {}
+    "ghcr.io/docker-x/devcontainers/sacp-conductor:1": {}
   },
   "containerEnv": {
     "AGENT_CONFIG_DIR": "/usr/local/share/agent-config"

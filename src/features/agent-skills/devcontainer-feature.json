@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "name": "Agent Skills",
   "description": "Install agent skills globally from GitHub repositories using npx skills or gh skill. Supports multiple skill packages, installer selection, and agent targeting.",
-  "documentationURL": "https://github.com/docker-x/devcontainer#agent-skills",
+  "documentationURL": "https://github.com/docker-x/devcontainers#agent-skills",
   "keywords": [
     "ai",
     "agents",
@@ -41,7 +41,7 @@
     }
   },
   "dependsOn": {
-    "ghcr.io/docker-x/devcontainer/agent-config": {},
+    "ghcr.io/docker-x/devcontainers/agent-config": {},
     "ghcr.io/devcontainers/features/node": {},
     "ghcr.io/devcontainers/features/github-cli": {}
   },

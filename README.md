@@ -1,4 +1,4 @@
-# docker-x/devcontainer
+# docker-x/devcontainers
 
 Devcontainer features and templates inspired by `gascity` and AI-agent tooling. All agent features share a common configuration folder so multiple agents can coexist in the same workspace.
 
@@ -31,7 +31,7 @@ All agent features depend on `agent-config` and create a subfolder under `AGENT_
 
 ## Publishing
 
-Run the `Release Dev Container Features & Templates` workflow manually from the Actions tab. Features are published to `ghcr.io/docker-x/devcontainer/<feature>` and templates to `ghcr.io/docker-x/devcontainer/templates/<template>`.
+Run the `Release Dev Container Features & Templates` workflow manually from the Actions tab. Features are published to `ghcr.io/docker-x/devcontainers/<feature>` and templates to `ghcr.io/docker-x/devcontainers/templates/<template>`.
 
 ## Usage
 
@@ -39,9 +39,9 @@ Run the `Release Dev Container Features & Templates` workflow manually from the 
 {
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
   "features": {
-    "ghcr.io/docker-x/devcontainer/agent-config:1": {},
-    "ghcr.io/docker-x/devcontainer/devin:1": {},
-    "ghcr.io/docker-x/devcontainer/gascity:1": {}
+    "ghcr.io/docker-x/devcontainers/agent-config:1": {},
+    "ghcr.io/docker-x/devcontainers/devin:1": {},
+    "ghcr.io/docker-x/devcontainers/gascity:1": {}
   },
   "remoteUser": "vscode"
 }
