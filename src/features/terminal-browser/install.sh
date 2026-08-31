@@ -19,6 +19,8 @@ echo "terminal-browser: installing system dependencies for Electron/Chromium..."
 # Package names with t64 suffix are the correct names on Ubuntu 24.04 (64-bit time_t transition).
 apt-get update -y
 apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
     libnss3 \
     libatk1.0-0t64 \
     libatk-bridge2.0-0t64 \
@@ -81,8 +83,10 @@ else
 fi
 
 # Ensure ~/.local/bin is on PATH for login and non-login shells.
+# Hardcode REMOTE_USER_HOME instead of ${HOME} — OpenShift restricted SCC
+# sets HOME=/ for random-UID containers, which would resolve to /.local/bin.
 cat > /etc/profile.d/terminal-browser.sh <<EOF
-export PATH="\${HOME}/.local/bin:\$PATH"
+export PATH="${REMOTE_USER_HOME}/.local/bin:\$PATH"
 EOF
 chmod 0755 /etc/profile.d/terminal-browser.sh
 
