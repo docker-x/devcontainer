@@ -1,0 +1,19 @@
+{
+  "id": "terminal-browser",
+  "version": "1.0.0",
+  "name": "Terminal Browser",
+  "description": "Install terminal-browser — a real Chromium-based browser that renders inside the terminal via the kitty graphics protocol. Installs Electron system dependencies and runs the official installer.",
+  "documentationURL": "https://github.com/zenbu-labs/terminal-browser",
+  "keywords": [
+    "browser",
+    "terminal",
+    "chromium",
+    "electron",
+    "kitty-graphics-protocol"
+  ],
+  "options": {},
+  "installsAfter": [
+    "ghcr.io/devcontainers/features/common-utils",
+    "ghcr.io/devcontainers/features/node"
+  ]
+}
