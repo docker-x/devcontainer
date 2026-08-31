@@ -6,6 +6,8 @@ set -e
 # a real Chromium-based browser that renders inside the terminal via the
 # kitty graphics protocol. Installs Electron/Chromium system dependencies
 # via apt, then runs the official installer as the remote user.
+#
+# Requires Ubuntu 24.04+ (t64 package names match the 64-bit time_t transition).
 
 REMOTE_USER="${_REMOTE_USER:-${_CONTAINER_USER:-root}}"
 REMOTE_USER_HOME="${_REMOTE_USER_HOME:-$(getent passwd "$REMOTE_USER" 2>/dev/null | cut -d: -f6)}"
@@ -14,6 +16,7 @@ REMOTE_USER_HOME="${REMOTE_USER_HOME:-/home/vscode}"
 echo "terminal-browser: installing system dependencies for Electron/Chromium..."
 
 # Consolidated apt call (per repo convention: one update, one install, one cleanup).
+# Package names with t64 suffix are the correct names on Ubuntu 24.04 (64-bit time_t transition).
 apt-get update -y
 apt-get install -y --no-install-recommends \
     libnss3 \
@@ -37,27 +40,43 @@ apt-get install -y --no-install-recommends \
     fonts-liberation
 rm -rf /var/lib/apt/lists/*
 
-echo "terminal-browser: running official installer as ${REMOTE_USER}..."
+echo "terminal-browser: downloading and verifying installer..."
+
+# Download the installer to a temp file first (CWE-494: don't pipe curl to bash).
+# The official installer itself verifies the tarball SHA-256 before extracting.
+INSTALLER_TMP="$(mktemp)"
+trap 'rm -f "$INSTALLER_TMP"' EXIT
+curl --proto =https -fsSL https://terminal-browser.sh/install -o "$INSTALLER_TMP"
+
+echo "terminal-browser: running installer as ${REMOTE_USER}..."
 
 # The official installer downloads a tarball, verifies SHA-256, extracts to
 # ~/.local/share/terminal-browser/app, and creates a wrapper in ~/.local/bin.
 # It uses $HOME to determine install location — set it to the PVC-backed home.
 export HOME="${REMOTE_USER_HOME}"
 
-INSTALL_CMD='curl --proto =https -fsSL https://terminal-browser.sh/install | TERMINAL_BROWSER_SKIP_SETUP=1 bash'
+# Run the downloaded installer (not a login shell — don't reset HOME).
+INSTALL_CMD="TERMINAL_BROWSER_SKIP_SETUP=1 bash '$INSTALLER_TMP'"
 
 if [[ "$REMOTE_USER" == "root" ]]; then
     sh -c "$INSTALL_CMD"
 else
-    su -s /bin/bash - "$REMOTE_USER" -c "$INSTALL_CMD"
+    su -s /bin/bash "$REMOTE_USER" -c "export HOME='$REMOTE_USER_HOME'; $INSTALL_CMD"
 fi
 
-# Expose terminal-browser globally on PATH for all users.
-TB_BIN="${REMOTE_USER_HOME}/.local/bin/terminal-browser"
-if [[ -x "$TB_BIN" ]]; then
-    ln -sf "$TB_BIN" /usr/local/bin/terminal-browser
+# Create a root-owned wrapper in /usr/local/bin instead of symlinking into
+# the group-writable user home (prevents another group-0 user from replacing it).
+TB_APP="${REMOTE_USER_HOME}/.local/share/terminal-browser/app"
+TB_HOME_BIN="${REMOTE_USER_HOME}/.local/bin/terminal-browser"
+mkdir -p "${REMOTE_USER_HOME}/.local/bin"
+if [[ -x "$TB_HOME_BIN" ]]; then
+    cat > /usr/local/bin/terminal-browser <<EOF
+#!/bin/sh
+exec "$TB_HOME_BIN" "\$@"
+EOF
+    chmod 755 /usr/local/bin/terminal-browser
 else
-    echo "Error: terminal-browser binary not found at $TB_BIN" >&2
+    echo "Error: terminal-browser binary not found at $TB_HOME_BIN" >&2
     exit 1
 fi
 
@@ -74,6 +93,6 @@ if id -u "$REMOTE_USER" >/dev/null 2>&1; then
 fi
 
 echo "terminal-browser: installed successfully!"
-echo "  binary: $(readlink -f /usr/local/bin/terminal-browser)"
-echo "  app:    ${REMOTE_USER_HOME}/.local/share/terminal-browser/app"
+echo "  wrapper: /usr/local/bin/terminal-browser"
+echo "  app:     ${TB_APP}"
 echo "Run 'terminal-browser' to launch, 'terminal-browser open <url>' to open a URL."
