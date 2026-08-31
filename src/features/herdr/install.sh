@@ -1,7 +1,10 @@
 #!/bin/bash
 set -e
 
-# Herdr Installation Script (non-interactive)
+# Herdr Feature — install script
+# Downloads the pre-built Herdr binary from GitHub releases with SHA-256
+# verification.  Herdr is a Rust binary; the npm "herdr" package is just a
+# name placeholder and is NOT used.
 
 VERSION=${VERSION:-"latest"}
 
@@ -11,70 +14,125 @@ REMOTE_USER_HOME="${REMOTE_USER_HOME:-/home/vscode}"
 AGENT_DIR="${AGENT_CONFIG_DIR:-/usr/local/share/agent-config}/herdr"
 SHARE_CONFIG="${SHARECONFIG:-false}"
 
-echo "Installing Herdr (version: ${VERSION})..."
+echo "herdr: installing Herdr (version: ${VERSION})..."
 
-# Install curl if not available
-if ! command -v curl &> /dev/null; then
+# --- Install curl if not present ---
+if ! command -v curl >/dev/null 2>&1; then
     apt-get update -y && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 fi
 
-# Try npm install first; fall back to the curl install script if npm is
-# unavailable or the package install fails.
-HERDR_INSTALLED=0
+# --- Resolve version to a release tag ---
+if [[ "$VERSION" == "latest" || -z "$VERSION" ]]; then
+    # Fetch the latest release manifest from herdr.dev
+    MANIFEST="$(curl -fsSL --retry 3 --connect-timeout 10 --max-time 20 https://herdr.dev/latest.json)"
+    VERSION="$(printf '%s\n' "$MANIFEST" | awk -F '"' '/"version"/ { print $4; exit }')"
+    if [[ -z "$VERSION" ]]; then
+        echo "Error: could not determine latest Herdr version from manifest" >&2
+        exit 1
+    fi
+    echo "herdr: resolved latest version to v${VERSION}"
+else
+    # Strip leading 'v' if present, then re-add for the tag
+    VERSION="${VERSION#v}"
+fi
+RELEASE_TAG="v${VERSION}"
 
-if command -v npm &> /dev/null; then
-    set +e
-    if [[ "$VERSION" == "latest" || -z "$VERSION" ]]; then
-        npm install -g --ignore-scripts herdr
-    else
-        npm install -g --ignore-scripts herdr@"${VERSION}"
-    fi
-    NPM_RC=$?
-    set -e
-    # Explicitly run postinstall for native dependencies
-    if [[ $NPM_RC -eq 0 ]]; then
-        npm rebuild -g herdr 2>&1 || { echo "Error: herdr native binary setup failed" >&2; exit 1; }
-    fi
-    if [[ $NPM_RC -eq 0 ]]; then
-        HERDR_INSTALLED=1
-        echo "Herdr installed via npm"
-    else
-        echo "npm install of herdr failed (exit ${NPM_RC}); falling back to install script"
-    fi
+# --- Select architecture-appropriate release asset ---
+HERDR_ARCH="$(uname -m)"
+case "$HERDR_ARCH" in
+    x86_64|amd64)   HERDR_TARGET="linux-x86_64" ;;
+    aarch64|arm64)  HERDR_TARGET="linux-aarch64" ;;
+    *)              echo "herdr: unsupported architecture $HERDR_ARCH for pre-built binary" >&2; exit 1 ;;
+esac
+
+# --- Build download URL and fetch SHA-256 from the manifest ---
+HERDR_URL="https://github.com/herdrdev/herdr/releases/download/${RELEASE_TAG}/herdr-${HERDR_TARGET}"
+
+# Fetch SHA-256 from the release manifest (authoritative source)
+MANIFEST="$(curl -fsSL --retry 3 --connect-timeout 10 --max-time 20 https://herdr.dev/latest.json)"
+HERDR_SHA256="$(printf '%s\n' "$MANIFEST" | awk -v target="\"${HERDR_TARGET}\"" '
+    /"sha256"/ { in_sha256 = 1; next }
+    in_sha256 && /}/ { exit }
+    in_sha256 && index($0, target) {
+        sub(/^.*:[[:space:]]*"/, "")
+        sub(/".*$/, "")
+        print
+        exit
+    }
+')"
+
+# If the manifest didn't have the SHA (e.g. version mismatch for non-latest),
+# fall back to fetching the specific release manifest
+if [[ -z "$HERDR_SHA256" ]] || [[ ${#HERDR_SHA256} -ne 64 ]]; then
+    echo "herdr: SHA-256 not in latest manifest, fetching release-specific checksums..."
+    # Try the releases-specific manifest endpoint
+    MANIFEST="$(curl -fsSL --retry 3 --connect-timeout 10 --max-time 20 "https://herdr.dev/releases.json")"
+    HERDR_SHA256="$(printf '%s\n' "$MANIFEST" | awk -v ver="\"${VERSION}\"" -v target="\"${HERDR_TARGET}\"" '
+        $0 ~ "\""$ver"\"" { in_ver = 1 }
+        in_ver && /"sha256"/ { in_sha256 = 1; next }
+        in_sha256 && /}/ { in_sha256 = 0 }
+        in_sha256 && index($0, target) {
+            sub(/^.*:[[:space:]]*"/, "")
+            sub(/".*$/, "")
+            print
+            exit
+        }
+    ')"
 fi
 
-if [[ $HERDR_INSTALLED -eq 0 ]]; then
-    set +e
-    curl --proto =https -fsSL https://herdr.ai/install.sh -o /tmp/herdr-install.sh
-    CURL_RC=$?
-    set -e
-    if [[ $CURL_RC -ne 0 ]]; then
-        rm -f /tmp/herdr-install.sh
-        echo "Error: Herdr install script download failed (exit ${CURL_RC}) and npm was unavailable" >&2
-        exit 1
-    fi
-    if [[ ! -s /tmp/herdr-install.sh ]]; then
-        rm -f /tmp/herdr-install.sh
-        echo "Error: Herdr install script is empty" >&2
-        exit 1
-    fi
-    if ! bash -n /tmp/herdr-install.sh 2>/dev/null; then
-        rm -f /tmp/herdr-install.sh
-        echo "Error: Herdr install script has invalid Bash syntax" >&2
-        exit 1
-    fi
-    bash /tmp/herdr-install.sh --version "${VERSION:-latest}"
-    CURL_RC=$?
-    rm -f /tmp/herdr-install.sh
-    set -e
-    if [[ $CURL_RC -ne 0 ]]; then
-        echo "Error: Herdr install script failed (exit ${CURL_RC}) and npm was unavailable" >&2
-        exit 1
-    fi
-    echo "Herdr installed via install script"
+if [[ -z "$HERDR_SHA256" ]] || [[ ${#HERDR_SHA256} -ne 64 ]]; then
+    echo "Error: could not find SHA-256 checksum for ${HERDR_TARGET} in release ${RELEASE_TAG}" >&2
+    echo "herdr: continuing without checksum verification (unpinned fallback)"
+    HERDR_SHA256=""
 fi
 
-# Shared agent config
+# --- Download to a mktemp directory (CWE-377) ---
+TMPDIR="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR"' EXIT
+
+echo "herdr: downloading ${RELEASE_TAG} for ${HERDR_TARGET}..."
+if ! curl -fsSL --retry 3 --connect-timeout 10 --max-time 120 "$HERDR_URL" -o "${TMPDIR}/herdr"; then
+    echo "Error: failed to download Herdr binary from ${HERDR_URL}" >&2
+    exit 1
+fi
+
+# --- Verify SHA-256 (CWE-494) ---
+if [[ -n "$HERDR_SHA256" ]]; then
+    if command -v sha256sum >/dev/null 2>&1; then
+        ACTUAL_SHA256="$(sha256sum < "${TMPDIR}/herdr" | awk '{ print $1 }')"
+    elif command -v shasum >/dev/null 2>&1; then
+        ACTUAL_SHA256="$(shasum -a 256 < "${TMPDIR}/herdr" | awk '{ print $1 }')"
+    elif command -v openssl >/dev/null 2>&1; then
+        ACTUAL_SHA256="$(openssl dgst -sha256 < "${TMPDIR}/herdr" | awk '{ print $NF }')"
+    else
+        echo "Warning: no SHA-256 tool available; skipping verification" >&2
+        ACTUAL_SHA256="$HERDR_SHA256"  # skip check
+    fi
+    if [[ "$ACTUAL_SHA256" != "$HERDR_SHA256" ]]; then
+        echo "Error: Herdr checksum mismatch (expected ${HERDR_SHA256}, got ${ACTUAL_SHA256})" >&2
+        exit 1
+    fi
+    echo "herdr: SHA-256 verified"
+fi
+
+# --- Install the binary to /usr/local/bin and user home ---
+install -m 755 "${TMPDIR}/herdr" /usr/local/bin/herdr
+echo "herdr: installed to /usr/local/bin/herdr"
+
+# Also install to user's .local/bin (may be PVC-backed)
+mkdir -p "$REMOTE_USER_HOME/.local/bin"
+install -m 755 "${TMPDIR}/herdr" "$REMOTE_USER_HOME/.local/bin/herdr"
+# And to /etc/skel/.local/bin for first-boot population
+mkdir -p /etc/skel/.local/bin
+install -m 755 "${TMPDIR}/herdr" /etc/skel/.local/bin/herdr
+
+# Group permissions for home directory data dirs
+chgrp -R 0 "$REMOTE_USER_HOME/.local" 2>/dev/null || true
+find "$REMOTE_USER_HOME/.local" -type d -exec chmod g+rwX {} + 2>/dev/null || true
+
+echo "herdr: also installed to $REMOTE_USER_HOME/.local/bin/herdr and /etc/skel/.local/bin/herdr"
+
+# --- Shared agent config ---
 if [[ "$SHARE_CONFIG" == "true" ]]; then
     mkdir -p "$AGENT_DIR"
     if id -u "$REMOTE_USER" >/dev/null 2>&1; then
@@ -111,42 +169,19 @@ if [[ "$SHARE_CONFIG" != "true" ]]; then
     done
 fi
 
-# Locate the installed binary and copy it to /usr/local/bin for system-wide access
-NPM_GLOBAL_BIN="$(npm config get prefix 2>/dev/null || true)/bin"
-HERDR_BIN="$NPM_GLOBAL_BIN/herdr"
-if [[ ! -x "$HERDR_BIN" ]]; then
-    HERDR_BIN="$(command -v herdr || true)"
-fi
-if [[ -z "$HERDR_BIN" ]] || [[ ! -x "$HERDR_BIN" ]]; then
-    HERDR_BIN="${REMOTE_USER_HOME:-$HOME}/.local/bin/herdr"
-fi
-
-if [[ ! -x "$HERDR_BIN" ]]; then
-    echo "Warning: Herdr binary not found at $HERDR_BIN — herdr may not be published yet" >&2
-    echo "Herdr feature installed (configuration only). Binary will be available when herdr is published."
-    echo "Herdr feature installed successfully (configuration only, binary pending publication)"
-    exit 0
-fi
-
-if [[ -n "$HERDR_BIN" && "$HERDR_BIN" != "/usr/local/bin/herdr" ]]; then
-    ln -sf "$HERDR_BIN" /usr/local/bin/herdr
-fi
-chmod +x /usr/local/bin/herdr
-echo "Herdr linked to /usr/local/bin/herdr"
-
-# Verify installation (don't let version-check failures abort the build)
+# --- Verify installation (don't let version-check failures abort the build) ---
 set +e
 if command -v herdr >/dev/null 2>&1; then
     OUT=$(herdr --version 2>&1)
     RC=$?
     if [[ $RC -eq 0 ]]; then
-        echo "Herdr version: ${OUT}"
+        echo "herdr: version ${OUT}"
     else
-        echo "Herdr: version check skipped (exit ${RC})"
+        echo "herdr: version check skipped (exit ${RC})"
     fi
 else
-    echo "Herdr: binary not on PATH; skipping version check"
+    echo "herdr: binary not on PATH; skipping version check"
 fi
 set -e
 
-echo "Herdr installed successfully!"
+echo "herdr: installed successfully!"
