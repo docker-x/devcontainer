@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
 set -e
 
-# Agent Skills — install agent skills globally from multiple GitHub repositories.
+# Agent Skills — ships a runtime script that installs agent skills using the
+# already-authenticated gh CLI on the PVC, and creates per-agent symlinks.
 #
-# Each repo is installed using the best available method:
-#   - Repos with a bin/skills.js (e.g. theplenkov-ai/skills) → npx github:owner/repo --home --copy
-#   - Repos with SKILL.md files but no bin (e.g. gastownhall/beads, github/gh-stack) → gh skill install
+# Why runtime, not build-time?
+#   - gh auth lives on the PVC (~/.config/gh/hosts.yml), only available at runtime
+#   - Private repos (e.g. theplenkov-ai/skills) need that auth — no token in the image
+#   - Skills persist on the PVC across pod recreations
 #
-# The installer option forces one method for all repos:
-#   npx  — use npx for all (will fail gracefully on repos without bin/skills.js)
-#   gh   — use gh skill install for all
-#   auto — detect per-repo (default)
+# What this feature does at build time:
+#   1. Writes /usr/local/bin/agent-skills-sync — runtime script (runs at login)
+#   2. Writes /etc/profile.d/agent-skills.sh — sources the sync script
+#   3. Optionally installs PUBLIC skills to /usr/local/share/agent-skills (system-wide,
+#      outside PVC) as a fallback for environments without gh auth
 
-INSTALLER="${INSTALLER:-auto}"
 AGENTS="${AGENTS:-*}"
-SCOPE="${SCOPE:-home}"
-COPY="${COPY:-true}"
 
-# SKILLS is a comma-separated string (devcontainer features don't support array type)
+# SKILLS is a comma-separated string
 SKILLS_STR="${SKILLS:-}"
 IFS=',' read -ra SKILLS <<< "${SKILLS_STR}"
 
@@ -25,25 +25,23 @@ REMOTE_USER="${_REMOTE_USER:-${_CONTAINER_USER:-vscode}}"
 HOME_DIR="${_REMOTE_USER_HOME:-$(getent passwd "$REMOTE_USER" 2>/dev/null | cut -d: -f6)}"
 HOME_DIR="${HOME_DIR:-/home/${REMOTE_USER}}"
 
-echo "agent-skills: installer=${INSTALLER} scope=${SCOPE} copy=${COPY}"
+# System-wide fallback store (for public skills, outside PVC)
+SKILLS_STORE="/usr/local/share/agent-skills"
+
 echo "agent-skills: skills=${SKILLS[*]}"
 echo "agent-skills: agents=${AGENTS}"
 
-# SCOPE=project is not meaningful during image build (no project context)
-if [[ "${SCOPE}" == "project" ]]; then
-  echo "agent-skills: WARNING — SCOPE=project is not meaningful during image build (no project directory). Use SCOPE=home for build-time installs."
-  echo "agent-skills: Continuing with SCOPE=home"
-  SCOPE="home"
-fi
+# ---------------------------------------------------------------------------
+# Build-time: install PUBLIC skills to system-wide store (fallback)
+# No token handling — public repos don't need auth. If GH_TOKEN is set in
+# the environment, gh picks it up automatically (no gh auth login needed,
+# which would bake credentials into the image).
+# ---------------------------------------------------------------------------
 
-# Run a command as the remote user (for home-scoped installs)
-# Uses su without - (login flag) to preserve HOME from the environment
 run_as_user() {
   if [[ "$REMOTE_USER" == "root" ]]; then
     env HOME="${HOME_DIR}" "$@"
   else
-    # Use su without login flag (-) to avoid resetting HOME.
-    # Export HOME explicitly in the command string, then exec the args.
     local cmd_args=()
     for arg in "$@"; do
       cmd_args+=("$(printf '%q' "$arg")")
@@ -54,122 +52,167 @@ run_as_user() {
   fi
 }
 
-# Convert copy boolean — use arrays for safe quoting (no word-splitting issues)
-if [[ "${COPY}" == "true" ]]; then
-  COPY_FLAG=("--copy")
-else
-  COPY_FLAG=("--no-copy")
-fi
+mkdir -p "$SKILLS_STORE"
+chown "${REMOTE_USER}:${REMOTE_USER}" "$SKILLS_STORE" 2>/dev/null || true
 
-# Determine scope flag
-if [[ "${SCOPE}" == "home" ]]; then
-  NPX_SCOPE=("--global")
-  GH_SCOPE=("--scope" "user")
-else
-  NPX_SCOPE=("--project")
-  GH_SCOPE=("--scope" "project")
-fi
-
-# Build agent flags for gh skill
-if [[ "${AGENTS}" == "*" ]]; then
-  GH_AGENT_FLAG=("--all")
-else
-  GH_AGENT_FLAG=()
-  IFS=',' read -ra AGENT_LIST <<< "${AGENTS}"
-  for agent in "${AGENT_LIST[@]}"; do
-    agent=$(echo "${agent}" | xargs)
-    GH_AGENT_FLAG+=("--agent" "${agent}")
+if [[ ${#SKILLS[@]} -gt 0 ]]; then
+  for pkg in "${SKILLS[@]}"; do
+    pkg=$(echo "${pkg}" | xargs)
+    [[ -z "${pkg}" ]] && continue
+    echo "agent-skills: attempting build-time install of ${pkg} (public only)"
+    run_as_user gh skill install "${pkg}" --dir "${SKILLS_STORE}" --all --force 2>&1 || {
+      echo "agent-skills: build-time install failed for ${pkg} (likely private — will retry at runtime)"
+    }
   done
 fi
 
-FAILED_COUNT=0
-ATTEMPTED_COUNT=0
+SKILL_COUNT=$(find "${SKILLS_STORE}" -maxdepth 2 -name "SKILL.md" 2>/dev/null | wc -l)
+echo "agent-skills: ${SKILL_COUNT} public skills in system store"
 
-# Install a repo via npx (works for repos with bin/skills.js wrapper)
-install_via_npx() {
-  local repo="$1"
-  echo "agent-skills: installing ${repo} via npx"
-  run_as_user npx "github:${repo}" "${NPX_SCOPE[@]}" "${COPY_FLAG[@]}" --yes 2>&1 || {
-    echo "agent-skills: WARNING — npx install failed for ${repo}, trying gh skill"
-    install_via_gh "${repo}"
-  }
-}
+# Clean up any gh auth state that might have been set by env — don't bake tokens
+rm -f /root/.config/gh/hosts.yml 2>/dev/null || true
+rm -f "${HOME_DIR}/.config/gh/hosts.yml" 2>/dev/null || true
 
-# Install a repo via gh skill (works for any repo with SKILL.md files)
-install_via_gh() {
-  local repo="$1"
-  echo "agent-skills: installing ${repo} via gh skill"
-  run_as_user gh skill install "${repo}" "${GH_SCOPE[@]}" "${GH_AGENT_FLAG[@]}" --force 2>&1 || {
-    echo "agent-skills: WARNING — gh skill install failed for ${repo}, continuing"
-    FAILED_COUNT=$((FAILED_COUNT + 1))
-  }
-}
+# ---------------------------------------------------------------------------
+# Known agents → skills directory mapping
+# ---------------------------------------------------------------------------
 
-# Auto-detect: try npx first (for repos with bin/skills.js), fall back to gh skill
-install_auto() {
-  local repo="$1"
-  echo "agent-skills: installing ${repo} (auto-detect)"
-  # Try npx first — repos with bin/skills.js will work
-  if run_as_user npx "github:${repo}" "${NPX_SCOPE[@]}" "${COPY_FLAG[@]}" --yes 2>&1; then
-    echo "agent-skills: ${repo} installed via npx"
-  else
-    echo "agent-skills: npx failed for ${repo}, falling back to gh skill"
-    install_via_gh "${repo}"
-  fi
-}
+KNOWN_AGENTS=(
+  "devin:.config/devin/skills"
+  "claude-code:.claude/skills"
+  "github-copilot:.copilot/skills"
+  "codex:.codex/skills"
+  "cursor:.cursor/skills"
+  "opencode:.opencode/skills"
+  "gemini-cli:.gemini/skills"
+  "goose:.goose/skills"
+  "windsurf:.codeium/windsurf/skills"
+  "kilo:.kilo/skills"
+)
 
-# Install each skill package
-if [[ ${#SKILLS[@]} -eq 0 ]]; then
-  echo "agent-skills: no skills specified, skipping"
-  exit 0
+# Build agent symlink list
+if [[ "${AGENTS}" == "*" ]]; then
+  AGENT_SYMLINKS=("${KNOWN_AGENTS[@]}")
+else
+  AGENT_SYMLINKS=()
+  IFS=',' read -ra AGENT_LIST <<< "${AGENTS}"
+  for agent in "${AGENT_LIST[@]}"; do
+    agent=$(echo "${agent}" | xargs)
+    for known in "${KNOWN_AGENTS[@]}"; do
+      known_name="${known%%:*}"
+      if [[ "${known_name}" == "${agent}" ]]; then
+        AGENT_SYMLINKS+=("$known")
+      fi
+    done
+  done
 fi
 
+# ---------------------------------------------------------------------------
+# Write runtime sync script: /usr/local/bin/agent-skills-sync
+# ---------------------------------------------------------------------------
+
+# Build the skills list as a space-separated string (POSIX sh compatible)
+SKILLS_STRING=""
 for pkg in "${SKILLS[@]}"; do
-  pkg=$(echo "${pkg}" | xargs)  # trim whitespace
-  if [[ -z "${pkg}" ]]; then
-    continue
-  fi
-
-  ATTEMPTED_COUNT=$((ATTEMPTED_COUNT + 1))
-
-  case "${INSTALLER}" in
-    npx)
-      install_via_npx "${pkg}"
-      ;;
-    gh)
-      install_via_gh "${pkg}"
-      ;;
-    auto)
-      install_auto "${pkg}"
-      ;;
-    *)
-      echo "agent-skills: ERROR — unknown installer '${INSTALLER}', use 'npx', 'gh', or 'auto'"
-      exit 1
-      ;;
-  esac
+  pkg=$(echo "${pkg}" | xargs)
+  [[ -z "$pkg" ]] && continue
+  SKILLS_STRING+=" ${pkg}"
 done
 
-# Check if any installs failed
-if [[ ${FAILED_COUNT} -gt 0 ]] && [[ ${FAILED_COUNT} -eq ${ATTEMPTED_COUNT} ]]; then
-  echo "agent-skills: ERROR — all skill installations failed" >&2
-  exit 1
+# Build the agent symlink calls
+AGENT_LINK_CALLS=""
+for entry in "${AGENT_SYMLINKS[@]}"; do
+  dir="${entry#*:}"
+  AGENT_LINK_CALLS+="  _agent_skills_link \"$dir\";"$'\n'
+done
+
+cat > /usr/local/bin/agent-skills-sync << SYNC_EOF
+#!/bin/sh
+# Agent Skills sync — runs at login to:
+#   1. Install skills from GitHub repos using existing gh auth (on PVC)
+#   2. Create per-agent symlinks so each agent finds skills in its expected dir
+#
+# Idempotent: creates .skill-lock.json after install attempt, skips if lock exists.
+# Fallback (no gh auth): links to system store but does NOT create lock file,
+# so later runs with auth can still install real skills.
+
+AGENT_SKILLS_STORE="/usr/local/share/agent-skills"
+SKILLS_REPOS="${SKILLS_STRING# }"
+HOME_FALLBACK="${HOME_DIR}"
+
+# Fix HOME for OpenShift restricted SCC (sets HOME=/)
+_H="\${HOME:-\$HOME_FALLBACK}"
+[ "\$_H" = "/" ] && _H="\$HOME_FALLBACK"
+export HOME="\$_H"
+
+AGENTS_DIR="\$_H/.agents"
+SKILLS_DIR="\$AGENTS_DIR/skills"
+LOCK_FILE="\$AGENTS_DIR/.skill-lock.json"
+
+# Helper: check if a directory contains actual SKILL.md files
+_has_skills() {
+  [ -d "\$1" ] && [ -n "\$(find "\$1" -maxdepth 2 -name 'SKILL.md' 2>/dev/null | head -1)" ]
+}
+
+# --- 1. Install skills if not already done ---
+# Skip only if lock file exists (means install was attempted, success or fail)
+if [ ! -f "\$LOCK_FILE" ]; then
+  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+    echo "agent-skills: installing skills via gh (first run)..."
+    mkdir -p "\$AGENTS_DIR"
+    for repo in \$SKILLS_REPOS; do
+      gh skill install "\$repo" --dir "\$SKILLS_DIR" --all --force 2>/dev/null || \\
+        echo "agent-skills: failed to install \$repo (skipping)"
+    done
+    # Mark as done — don't retry every login even if some repos failed
+    touch "\$LOCK_FILE"
+  fi
 fi
 
-# Determine the skills directory (SCOPE is always "home" at build time)
-SKILLS_DIR="${HOME_DIR}/.agents/skills"
-
-# Ensure skills directory is accessible to the remote user
-if [[ -d "${SKILLS_DIR}" ]]; then
-  chown -R "${REMOTE_USER}:${REMOTE_USER}" "${HOME_DIR}/.agents" 2>/dev/null || true
+# --- 2. Ensure ~/.agents/skills exists ---
+# If no PVC skills dir, link to system store (but only if it has real skills)
+if [ ! -e "\$SKILLS_DIR" ] && _has_skills "\$AGENT_SKILLS_STORE"; then
+  mkdir -p "\$AGENTS_DIR" 2>/dev/null
+  ln -sfn "\$AGENT_SKILLS_STORE" "\$SKILLS_DIR"
 fi
 
-# Verify installation
-SKILL_COUNT=$(find "${SKILLS_DIR}" -maxdepth 1 -type d 2>/dev/null | wc -l)
-SKILL_COUNT=$((SKILL_COUNT - 1))  # subtract the directory itself
-if [[ ${SKILL_COUNT} -gt 0 ]]; then
-  echo "agent-skills: ${SKILL_COUNT} skills installed to ${SKILLS_DIR}/"
-else
-  echo "agent-skills: WARNING — no skills found in ${SKILLS_DIR}/"
+# --- 3. Create per-agent symlinks ---
+_agent_skills_link() {
+  _target="\$_H/\$1"
+  _parent="\$(dirname "\$_target")"
+  if [ ! -e "\$_target" ]; then
+    mkdir -p "\$_parent" 2>/dev/null
+    # Link to ~/.agents/skills if it has skills, else to system store
+    if _has_skills "\$SKILLS_DIR"; then
+      ln -sfn "\$SKILLS_DIR" "\$_target"
+    elif _has_skills "\$AGENT_SKILLS_STORE"; then
+      ln -sfn "\$AGENT_SKILLS_STORE" "\$_target"
+    fi
+  fi
+}
+
+${AGENT_LINK_CALLS}
+SYNC_EOF
+
+chmod 0755 /usr/local/bin/agent-skills-sync
+
+# ---------------------------------------------------------------------------
+# Write profile.d script that calls the sync script
+# ---------------------------------------------------------------------------
+
+cat > /etc/profile.d/agent-skills.sh << 'PROFILE_EOF'
+#!/bin/sh
+# Agent Skills — run sync at login (installs skills + creates symlinks)
+[ -x /usr/local/bin/agent-skills-sync ] && /usr/local/bin/agent-skills-sync
+PROFILE_EOF
+
+chmod 0755 /etc/profile.d/agent-skills.sh
+
+# Also source from bashrc for non-login interactive shells
+if ! grep -q 'agent-skills.sh' /etc/bash.bashrc 2>/dev/null; then
+  echo '[ -f /etc/profile.d/agent-skills.sh ] && . /etc/profile.d/agent-skills.sh' >> /etc/bash.bashrc
 fi
 
+echo "agent-skills: runtime sync script at /usr/local/bin/agent-skills-sync"
+echo "agent-skills: profile.d hook at /etc/profile.d/agent-skills.sh"
 echo "agent-skills: done"
