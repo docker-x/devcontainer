@@ -1,6 +1,6 @@
 {
   "id": "terminal-browser",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": "Terminal Browser",
   "description": "Install terminal-browser — a real Chromium-based browser that renders inside the terminal via the kitty graphics protocol. Installs Electron system dependencies and runs the official installer. Requires Ubuntu 24.04+ (t64 package names).",
   "documentationURL": "https://github.com/zenbu-labs/terminal-browser",
