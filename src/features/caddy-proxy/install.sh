@@ -52,14 +52,17 @@ cat > "$CADDY_CONFIG_DIR/Caddyfile" <<EOF
 }
 
 :${LISTEN_PORT} {
-    # Default: respond with proxy status page
-    respond "caddy-proxy running on :${LISTEN_PORT}. Use 'proxy-add <path> <host:port>' to add routes." 200
+    # Default catch-all: respond with proxy status page.
+    # proxy-add prepends routes before this, so specific paths match first.
+    handle /* {
+        respond "caddy-proxy running on :${LISTEN_PORT}. Use 'proxy-add <path> <host:port>' to add routes." 200
+    }
 }
 EOF
 
 # Helper script: proxy-add <path> <host:port>
 # Adds a reverse proxy route via Caddy's JSON API.
-# Routes are inserted at position 0 (before the default catch-all).
+# Reads current routes, prepends the new route, writes back via PUT.
 cat > /usr/local/bin/proxy-add <<'SCRIPT'
 #!/bin/bash
 set -e
@@ -80,10 +83,9 @@ STRIP="${3:-false}"
 # Normalize path — ensure leading slash, no trailing slash
 PATH_PREFIX="/$(echo "$PATH_PREFIX" | sed 's|^/||; s|/$||')"
 
-# Build the route JSON. If strip-prefix is requested, add a rewrite handler
-# before the reverse_proxy handler in the same route.
+# Build the new route JSON.
 if [ "$STRIP" == "true" ]; then
-    ROUTE_JSON=$(cat <<JSON
+    NEW_ROUTE=$(cat <<JSON
 {
     "match": [{"path": ["${PATH_PREFIX}/*"]}],
     "handle": [
@@ -94,7 +96,7 @@ if [ "$STRIP" == "true" ]; then
 JSON
 )
 else
-    ROUTE_JSON=$(cat <<JSON
+    NEW_ROUTE=$(cat <<JSON
 {
     "match": [{"path": ["${PATH_PREFIX}/*"]}],
     "handle": [
@@ -105,12 +107,18 @@ JSON
 )
 fi
 
-# Insert route at position 0 (before the default catch-all route).
-# Caddy evaluates routes in order, so the first match wins.
-curl -s "http://localhost:${ADMIN_PORT}/config/apps/http/servers/srv0/routes/0" \
-    -X POST \
+# Read current routes, prepend new route, write back via PUT.
+# Caddy evaluates routes in order — first match wins, so new routes
+# must come before the default catch-all.
+CURRENT=$(curl -s "http://localhost:${ADMIN_PORT}/config/apps/http/servers/srv0/routes" 2>/dev/null || echo "[]")
+
+# Build new array: [new_route, ...current_routes]
+NEW_ROUTES=$(echo "$CURRENT" | jq --argjson new "$NEW_ROUTE" -c '[$new] + .')
+
+curl -s "http://localhost:${ADMIN_PORT}/config/apps/http/servers/srv0/routes" \
+    -X PUT \
     -H "Content-Type: application/json" \
-    -d "$ROUTE_JSON" >/dev/null
+    -d "$NEW_ROUTES" >/dev/null
 
 echo "proxy-add: ${PATH_PREFIX} → ${UPSTREAM} (strip=${STRIP})"
 SCRIPT
