@@ -59,12 +59,12 @@ EOF
 
 # Helper script: proxy-add <path> <host:port>
 # Adds a reverse proxy route via Caddy's JSON API.
+# Routes are inserted at position 0 (before the default catch-all).
 cat > /usr/local/bin/proxy-add <<'SCRIPT'
 #!/bin/bash
 set -e
 
 ADMIN_PORT="${CADDY_ADMIN_PORT:-2019}"
-LISTEN_PORT="${CADDY_LISTEN_PORT:-3000}"
 
 if [ $# -lt 2 ]; then
     echo "Usage: proxy-add <path-prefix> <host:port> [strip-prefix]"
@@ -80,50 +80,37 @@ STRIP="${3:-false}"
 # Normalize path — ensure leading slash, no trailing slash
 PATH_PREFIX="/$(echo "$PATH_PREFIX" | sed 's|^/||; s|/$||')"
 
-# Build the route via Caddy's JSON API.
-# We use the append method to add a route to the server.
-ROUTE_JSON=$(cat <<JSON
+# Build the route JSON. If strip-prefix is requested, add a rewrite handler
+# before the reverse_proxy handler in the same route.
+if [ "$STRIP" == "true" ]; then
+    ROUTE_JSON=$(cat <<JSON
 {
     "match": [{"path": ["${PATH_PREFIX}/*"]}],
-    "handle": [{
-        "handler": "subroute",
-        "routes": [
-            {
-                "handle": [{
-                    "handler": "reverse_proxy",
-                    "upstreams": [{"dial": "${UPSTREAM}"}]
-                }]
-            }
-        ]
-    }]
+    "handle": [
+        {"handler": "rewrite", "strip_path_prefix": "${PATH_PREFIX}"},
+        {"handler": "reverse_proxy", "upstreams": [{"dial": "${UPSTREAM}"}]}
+    ]
 }
 JSON
 )
+else
+    ROUTE_JSON=$(cat <<JSON
+{
+    "match": [{"path": ["${PATH_PREFIX}/*"]}],
+    "handle": [
+        {"handler": "reverse_proxy", "upstreams": [{"dial": "${UPSTREAM}"}]}
+    ]
+}
+JSON
+)
+fi
 
-# Add route via admin API
-curl -s "http://localhost:${ADMIN_PORT}/config/apps/http/servers/srv0/routes" \
+# Insert route at position 0 (before the default catch-all route).
+# Caddy evaluates routes in order, so the first match wins.
+curl -s "http://localhost:${ADMIN_PORT}/config/apps/http/servers/srv0/routes/0" \
     -X POST \
     -H "Content-Type: application/json" \
     -d "$ROUTE_JSON" >/dev/null
-
-# If strip-prefix, add a rewrite handler
-if [ "$STRIP" == "true" ]; then
-    REWRITE_JSON=$(cat <<JSON
-{
-    "match": [{"path": ["${PATH_PREFIX}/*"]}],
-    "handle": [{
-        "handler": "rewrite",
-        "strip_path_prefix": "${PATH_PREFIX}"
-    }]
-}
-JSON
-)
-    # Insert rewrite before the proxy route (at the same position)
-    curl -s "http://localhost:${ADMIN_PORT}/config/apps/http/servers/srv0/routes/0" \
-        -X POST \
-        -H "Content-Type: application/json" \
-        -d "$REWRITE_JSON" >/dev/null
-fi
 
 echo "proxy-add: ${PATH_PREFIX} → ${UPSTREAM} (strip=${STRIP})"
 SCRIPT
@@ -144,8 +131,8 @@ if [ -z "$ROUTES" ] || [ "$ROUTES" == "null" ]; then
     exit 0
 fi
 
-echo "$ROUTES" | jq -r '.[] | 
-    "  \(.match[0].path[0] // "/*") → \(.handle[0].upstreams[0].dial // .handle[0].handler)"' 2>/dev/null || \
+echo "$ROUTES" | jq -r '.[] |
+    "  \(.match[0].path[0] // "/*") → \([.handle[] | .upstreams[0].dial // .handler] | join(" → "))"' 2>/dev/null || \
 echo "$ROUTES"
 SCRIPT
 chmod 0755 /usr/local/bin/proxy-list
@@ -195,8 +182,8 @@ fi
 
 echo "caddy-proxy: starting Caddy..."
 caddy run --config "$CADDYFILE" --adapter caddyfile &
-echo $! > /tmp/caddy-proxy.pid
-echo "caddy-proxy: started (pid $(cat /tmp/caddy-proxy.pid))"
+echo $! > "${HOME}/.caddy-proxy.pid"
+echo "caddy-proxy: started (pid $(cat "${HOME}/.caddy-proxy.pid"))"
 SCRIPT
 chmod 0755 /usr/local/bin/caddy-proxy-start
 
