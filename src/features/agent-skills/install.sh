@@ -132,13 +132,14 @@ cat > /usr/local/bin/agent-skills-sync << SYNC_EOF
 #   1. Install skills from GitHub repos using existing gh auth (on PVC)
 #   2. Create per-agent symlinks so each agent finds skills in its expected dir
 #
-# Idempotent: creates .skill-lock.json after install attempt, skips if lock exists.
+# Idempotent: creates .skill-lock.json (with version) after successful install.
 # Fallback (no gh auth): links to system store but does NOT create lock file,
 # so later runs with auth can still install real skills.
 
 AGENT_SKILLS_STORE="/usr/local/share/agent-skills"
 SKILLS_REPOS="${SKILLS_STRING# }"
 HOME_FALLBACK="${HOME_DIR}"
+LOCK_VERSION="2"
 
 # Fix HOME for OpenShift restricted SCC (sets HOME=/)
 _H="\${HOME:-\$HOME_FALLBACK}"
@@ -154,9 +155,25 @@ _has_skills() {
   [ -d "\$1" ] && [ -n "\$(find "\$1" -maxdepth 2 -name 'SKILL.md' 2>/dev/null | head -1)" ]
 }
 
+# Helper: count SKILL.md files in a directory
+_count_skills() {
+  if [ -d "\$1" ]; then
+    find "\$1" -maxdepth 2 -name 'SKILL.md' 2>/dev/null | wc -l
+  else
+    echo 0
+  fi
+}
+
 # --- 1. Install skills if not already done ---
-# Skip only if lock file exists (means install succeeded with at least 1 skill)
-if [ ! -f "\$LOCK_FILE" ]; then
+# Lock file contains version number. v1 (from 1.1.0) is invalidated — it was
+# written even on total failure. v2+ means at least one repo succeeded THIS run.
+_lock_valid=false
+if [ -f "\$LOCK_FILE" ]; then
+  _lock_ver=\$(cat "\$LOCK_FILE" 2>/dev/null)
+  [ "\$_lock_ver" = "\$LOCK_VERSION" ] && _lock_valid=true
+fi
+
+if [ "\$_lock_valid" = "false" ]; then
   if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
     echo "agent-skills: installing skills via gh (first run)..."
     mkdir -p "\$AGENTS_DIR"
@@ -164,13 +181,20 @@ if [ ! -f "\$LOCK_FILE" ]; then
     if [ -L "\$SKILLS_DIR" ]; then
       rm -f "\$SKILLS_DIR"
     fi
+    # Count skills before install to detect if THIS run added any
+    _before=\$(_count_skills "\$SKILLS_DIR")
+    _any_success=false
     for repo in \$SKILLS_REPOS; do
-      gh skill install "\$repo" --dir "\$SKILLS_DIR" --all --force 2>/dev/null || \\
+      if gh skill install "\$repo" --dir "\$SKILLS_DIR" --all --force 2>/dev/null; then
+        _any_success=true
+      else
         echo "agent-skills: failed to install \$repo (skipping)"
+      fi
     done
-    # Only lock if at least one skill was actually installed — allow retry on total failure
-    if _has_skills "\$SKILLS_DIR"; then
-      touch "\$LOCK_FILE"
+    # Only lock if this run actually installed new skills
+    _after=\$(_count_skills "\$SKILLS_DIR")
+    if [ "\$_any_success" = "true" ] && [ "\$_after" -gt "\$_before" ]; then
+      echo "\$LOCK_VERSION" > "\$LOCK_FILE"
     fi
   fi
 fi
