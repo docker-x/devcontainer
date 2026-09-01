@@ -61,8 +61,10 @@ echo "terminal-browser: running installer as ${REMOTE_USER}..."
 # installer runs as the remote user and can't create these if the home dir
 # is root-owned (common in devcontainer base images).
 mkdir -p "${REMOTE_USER_HOME}/.local/bin" "${REMOTE_USER_HOME}/.local/share"
+# chown is best-effort — may fail on read-only or root-squashed mounts,
+# but the dirs may already be usable by the remote user.
 if id -u "$REMOTE_USER" >/dev/null 2>&1; then
-    chown -R "$REMOTE_USER:" "${REMOTE_USER_HOME}/.local"
+    chown -R "$REMOTE_USER:" "${REMOTE_USER_HOME}/.local" 2>/dev/null || true
 fi
 
 # It uses $HOME to determine install location — set it to the PVC-backed home.
