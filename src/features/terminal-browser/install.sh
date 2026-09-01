@@ -57,6 +57,16 @@ echo "terminal-browser: running installer as ${REMOTE_USER}..."
 
 # The official installer downloads a tarball, verifies SHA-256, extracts to
 # ~/.local/share/terminal-browser/app, and creates a wrapper in ~/.local/bin.
+# Pre-create the .local directory tree and chown to the remote user — the
+# installer runs as the remote user and can't create these if the home dir
+# is root-owned (common in devcontainer base images).
+mkdir -p "${REMOTE_USER_HOME}/.local/bin" "${REMOTE_USER_HOME}/.local/share"
+# chown is best-effort — may fail on read-only or root-squashed mounts,
+# but the dirs may already be usable by the remote user.
+if id -u "$REMOTE_USER" >/dev/null 2>&1; then
+    chown -R "$REMOTE_USER:" "${REMOTE_USER_HOME}/.local" 2>/dev/null || true
+fi
+
 # It uses $HOME to determine install location — set it to the PVC-backed home.
 export HOME="${REMOTE_USER_HOME}"
 
@@ -75,7 +85,6 @@ fi
 # the group-writable user home (prevents another group-0 user from replacing it).
 TB_APP="${REMOTE_USER_HOME}/.local/share/terminal-browser/app"
 TB_HOME_BIN="${REMOTE_USER_HOME}/.local/bin/terminal-browser"
-mkdir -p "${REMOTE_USER_HOME}/.local/bin"
 if [[ -x "$TB_HOME_BIN" ]]; then
     # Remove any existing file/symlink first — cat > follows symlinks,
     # which would create a self-recursive wrapper on rerun (P2).
