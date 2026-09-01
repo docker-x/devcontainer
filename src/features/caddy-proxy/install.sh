@@ -103,7 +103,7 @@ JSON
 )
 fi
 
-# Read current routes, prepend new route, write back via PUT.
+# Read current routes, prepend new route, write back via PATCH.
 # Caddy evaluates routes in order — first match wins, so new routes
 # must come before the default catch-all.
 CURRENT=$(curl -s "http://localhost:${ADMIN_PORT}/config/apps/http/servers/srv0/routes" 2>/dev/null || echo "[]")
@@ -111,8 +111,9 @@ CURRENT=$(curl -s "http://localhost:${ADMIN_PORT}/config/apps/http/servers/srv0/
 # Build new array: [new_route, ...current_routes]
 NEW_ROUTES=$(echo "$CURRENT" | jq --argjson new "$NEW_ROUTE" -c '[$new] + .')
 
+# Use PATCH to replace the entire routes array (PUT returns 409 if key exists)
 curl -s "http://localhost:${ADMIN_PORT}/config/apps/http/servers/srv0/routes" \
-    -X PUT \
+    -X PATCH \
     -H "Content-Type: application/json" \
     -d "$NEW_ROUTES" >/dev/null
 
