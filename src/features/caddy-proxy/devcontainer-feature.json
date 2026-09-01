@@ -1,0 +1,29 @@
+{
+  "id": "caddy-proxy",
+  "version": "1.0.0",
+  "name": "Caddy Proxy",
+  "description": "Reverse proxy for dev server previews. Caddy listens on a single port and routes to multiple dev servers via path prefixes. Hot-reloadable via JSON API or helper scripts. Designed for Paseo integration.",
+  "documentationURL": "https://caddyserver.com/docs/api",
+  "keywords": [
+    "proxy",
+    "caddy",
+    "preview",
+    "reverse-proxy",
+    "dev-server"
+  ],
+  "installsAfter": [
+    "ghcr.io/devcontainers/features/common-utils"
+  ],
+  "options": {
+    "listenPort": {
+      "type": "string",
+      "default": "3000",
+      "description": "Port Caddy listens on (exposed via OpenShift route)"
+    },
+    "adminPort": {
+      "type": "string",
+      "default": "2019",
+      "description": "Caddy admin API port for hot-reloading routes"
+    }
+  }
+}
