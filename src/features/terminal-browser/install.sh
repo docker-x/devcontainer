@@ -49,6 +49,9 @@ echo "terminal-browser: downloading and verifying installer..."
 INSTALLER_TMP="$(mktemp)"
 trap 'rm -f "$INSTALLER_TMP"' EXIT
 curl --proto =https -fsSL https://terminal-browser.sh/install -o "$INSTALLER_TMP"
+# mktemp creates files with mode 0600 owned by root — make world-readable
+# so the su'd remote user can execute it (P0: non-root install path).
+chmod a+r "$INSTALLER_TMP"
 
 echo "terminal-browser: running installer as ${REMOTE_USER}..."
 
@@ -58,12 +61,14 @@ echo "terminal-browser: running installer as ${REMOTE_USER}..."
 export HOME="${REMOTE_USER_HOME}"
 
 # Run the downloaded installer (not a login shell — don't reset HOME).
+# Escape home path for safe embedding in command strings (printf '%q' convention).
+ESCAPED_HOME="$(printf '%q' "$REMOTE_USER_HOME")"
 INSTALL_CMD="TERMINAL_BROWSER_SKIP_SETUP=1 bash '$INSTALLER_TMP'"
 
 if [[ "$REMOTE_USER" == "root" ]]; then
     sh -c "$INSTALL_CMD"
 else
-    su -s /bin/bash "$REMOTE_USER" -c "export HOME='$REMOTE_USER_HOME'; $INSTALL_CMD"
+    su -s /bin/bash "$REMOTE_USER" -c "export HOME=$ESCAPED_HOME; $INSTALL_CMD"
 fi
 
 # Create a root-owned wrapper in /usr/local/bin instead of symlinking into
@@ -72,6 +77,9 @@ TB_APP="${REMOTE_USER_HOME}/.local/share/terminal-browser/app"
 TB_HOME_BIN="${REMOTE_USER_HOME}/.local/bin/terminal-browser"
 mkdir -p "${REMOTE_USER_HOME}/.local/bin"
 if [[ -x "$TB_HOME_BIN" ]]; then
+    # Remove any existing file/symlink first — cat > follows symlinks,
+    # which would create a self-recursive wrapper on rerun (P2).
+    rm -f /usr/local/bin/terminal-browser
     cat > /usr/local/bin/terminal-browser <<EOF
 #!/bin/sh
 exec "$TB_HOME_BIN" "\$@"
