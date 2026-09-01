@@ -1,6 +1,6 @@
 {
   "id": "caddy-proxy",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "name": "Caddy Proxy",
   "description": "Reverse proxy for dev server previews. Caddy listens on a single port and routes to multiple dev servers via path prefixes. Hot-reloadable via JSON API or helper scripts. Designed for Paseo integration.",
   "documentationURL": "https://caddyserver.com/docs/api",

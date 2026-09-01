@@ -52,11 +52,7 @@ cat > "$CADDY_CONFIG_DIR/Caddyfile" <<EOF
 }
 
 :${LISTEN_PORT} {
-    # Default catch-all: respond with proxy status page.
-    # proxy-add prepends routes before this, so specific paths match first.
-    handle /* {
-        respond "caddy-proxy running on :${LISTEN_PORT}. Use 'proxy-add <path> <host:port>' to add routes." 200
-    }
+    respond "caddy-proxy running on :${LISTEN_PORT}. Use 'proxy-add <path> <host:port>' to add routes." 200
 }
 EOF
 
