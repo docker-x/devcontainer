@@ -155,22 +155,29 @@ _has_skills() {
 }
 
 # --- 1. Install skills if not already done ---
-# Skip only if lock file exists (means install was attempted, success or fail)
+# Skip only if lock file exists (means install succeeded with at least 1 skill)
 if [ ! -f "\$LOCK_FILE" ]; then
   if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
     echo "agent-skills: installing skills via gh (first run)..."
     mkdir -p "\$AGENTS_DIR"
+    # Remove stale fallback symlink so gh installs to real PVC dir, not system store
+    if [ -L "\$SKILLS_DIR" ]; then
+      rm -f "\$SKILLS_DIR"
+    fi
     for repo in \$SKILLS_REPOS; do
       gh skill install "\$repo" --dir "\$SKILLS_DIR" --all --force 2>/dev/null || \\
         echo "agent-skills: failed to install \$repo (skipping)"
     done
-    # Mark as done — don't retry every login even if some repos failed
-    touch "\$LOCK_FILE"
+    # Only lock if at least one skill was actually installed — allow retry on total failure
+    if _has_skills "\$SKILLS_DIR"; then
+      touch "\$LOCK_FILE"
+    fi
   fi
 fi
 
 # --- 2. Ensure ~/.agents/skills exists ---
 # If no PVC skills dir, link to system store (but only if it has real skills)
+# This is a fallback — does NOT create lock file, so later runs with auth can retry
 if [ ! -e "\$SKILLS_DIR" ] && _has_skills "\$AGENT_SKILLS_STORE"; then
   mkdir -p "\$AGENTS_DIR" 2>/dev/null
   ln -sfn "\$AGENT_SKILLS_STORE" "\$SKILLS_DIR"
