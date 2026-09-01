@@ -99,9 +99,10 @@ EOF
 chmod 0755 /etc/profile.d/terminal-browser.sh
 
 # Group-writable home .local dirs so random-UID containers (OpenShift SCC) can access.
+# Don't suppress errors — if this fails, random-UID processes will get permission denied.
 if id -u "$REMOTE_USER" >/dev/null 2>&1; then
-    chgrp -R 0 "$REMOTE_USER_HOME/.local" 2>/dev/null || true
-    find "$REMOTE_USER_HOME/.local" -type d -exec chmod g+rwX {} + 2>/dev/null || true
+    chgrp -R 0 "$REMOTE_USER_HOME/.local"
+    find "$REMOTE_USER_HOME/.local" -type d -exec chmod g+rwX {} +
 fi
 
 echo "terminal-browser: installed successfully!"
