@@ -14,13 +14,12 @@ set -e
 # not at build time — agent config files live in the PVC-backed home directory
 # and would be overwritten by the mount if written during build.
 
-CONFIG_DIR="${AGENT_CONFIG_DIR:-/usr/local/share/agent-config}"
-REMOTE_USER="${_REMOTE_USER:-${_CONTAINER_USER:-root}}"
 REGISTRY_PATH="${REGISTRYPATH:-.devcontainer/mcp-servers.json}"
 
 echo "Installing MCP Servers Registry applier..."
 
 # Install configure-mcp.sh to /usr/local/bin
+rm -f /usr/local/bin/configure-mcp.sh
 cat > /usr/local/bin/configure-mcp.sh << 'APPLIER_EOF'
 #!/bin/bash
 set -euo pipefail
@@ -51,7 +50,9 @@ set -euo pipefail
 #   Copilot      → ~/.copilot/mcp-config.json (mcpServers, type: "http" for remote)
 
 # Fix HOME for OpenShift restricted SCC (sets HOME=/)
-HOME_FALLBACK="/home/vscode"
+# Resolve from current UID's passwd entry instead of hardcoding /home/vscode
+HOME_FALLBACK="$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f6)"
+HOME_FALLBACK="${HOME_FALLBACK:-/home/vscode}"
 _H="${HOME:-$HOME_FALLBACK}"
 [ "$_H" = "/" ] && _H="$HOME_FALLBACK"
 export HOME="$_H"
@@ -110,65 +111,74 @@ echo "configure-mcp: applying $SERVER_COUNT servers from $REGISTRY_FILE"
 # Args: $1=config_file, $2=server_name, $3=server_entry_json
 merge_into_json() {
     local config_file="$1" server_name="$2" entry_json="$3"
-    local tmp
+    local tmp lock_file="${config_file}.lock"
 
-    # Create file with empty mcpServers if it doesn't exist
-    if [ ! -f "$config_file" ]; then
-        mkdir -p "$(dirname "$config_file")"
-        echo '{"mcpServers": {}}' > "$config_file"
-    fi
+    (
+        flock -x 200
 
-    # Ensure mcpServers key exists
-    if ! jq -e '.mcpServers' "$config_file" >/dev/null 2>&1; then
-        tmp=$(jq '. + {"mcpServers": {}}' "$config_file")
-        echo "$tmp" > "$config_file"
-    fi
+        # Create file with empty mcpServers if it doesn't exist
+        if [ ! -f "$config_file" ]; then
+            mkdir -p "$(dirname "$config_file")"
+            echo '{"mcpServers": {}}' > "$config_file"
+        fi
 
-    # Merge: only set if not already present (don't overwrite user config)
-    if jq -e --arg name "$server_name" '.mcpServers[$name]' "$config_file" >/dev/null 2>&1; then
-        : # already exists, skip
-    else
-        tmp=$(jq --arg name "$server_name" --argjson entry "$entry_json" \
-            '.mcpServers[$name] = $entry' "$config_file")
-        echo "$tmp" > "$config_file"
-    fi
+        # Ensure mcpServers key exists
+        if ! jq -e '.mcpServers' "$config_file" >/dev/null 2>&1; then
+            tmp=$(jq '. + {"mcpServers": {}}' "$config_file")
+            echo "$tmp" > "$config_file"
+        fi
+
+        # Merge: only set if not already present (don't overwrite user config)
+        if jq -e --arg name "$server_name" '.mcpServers[$name]' "$config_file" >/dev/null 2>&1; then
+            : # already exists, skip
+        else
+            tmp=$(jq --arg name "$server_name" --argjson entry "$entry_json" \
+                '.mcpServers[$name] = $entry' "$config_file")
+            echo "$tmp" > "$config_file"
+        fi
+    ) 200>"$lock_file"
 }
 
 # --- Helper: add a server to Codex config.toml ---
 # Args: $1=config_file, $2=server_name, $3=entry_json
 merge_into_toml() {
     local config_file="$1" server_name="$2" entry_json="$3"
-    local has_url has_command
+    local has_url has_command lock_file="${config_file}.lock"
 
     has_url=$(echo "$entry_json" | jq -r 'has("url")')
     has_command=$(echo "$entry_json" | jq -r 'has("command")')
 
-    # Create file if it doesn't exist
-    if [ ! -f "$config_file" ]; then
-        mkdir -p "$(dirname "$config_file")"
-        touch "$config_file"
-    fi
+    (
+        flock -x 200
 
-    # Skip if server already configured
-    if grep -q "^\[mcp_servers\.$server_name\]" "$config_file" 2>/dev/null; then
-        return 0
-    fi
+        # Create file if it doesn't exist
+        if [ ! -f "$config_file" ]; then
+            mkdir -p "$(dirname "$config_file")"
+            touch "$config_file"
+        fi
 
-    # Append TOML block
-    {
-        echo ""
-        echo "[mcp_servers.$server_name]"
-        if [ "$has_url" = "true" ]; then
-            echo "$entry_json" | jq -r '.url' | sed 's/^/url = "/; s/$/"/'
+        # Skip if server already configured (use -F for fixed string, no regex injection)
+        if grep -qF "[mcp_servers.$server_name]" "$config_file" 2>/dev/null; then
+            return 0
         fi
-        if [ "$has_command" = "true" ]; then
-            echo "$entry_json" | jq -r '.command' | sed 's/^/command = "/; s/$/"/'
-            # args as TOML array
-            echo "$entry_json" | jq -r 'if .args then "args = [" + ([.args[] | "\"" + . + "\""] | join(", ")) + "]" else empty end'
-            # env as TOML inline table: env = { FOO = "bar", BAZ = "qux" }
-            echo "$entry_json" | jq -r 'if .env then "env = { " + ([.env | to_entries[] | "\(.key) = \"\(.value)\""] | join(", ")) + " }" else empty end' 2>/dev/null || true
-        fi
-    } >> "$config_file"
+
+        # Append TOML block with proper escaping via jq @sh filter
+        {
+            echo ""
+            echo "[mcp_servers.$server_name]"
+            if [ "$has_url" = "true" ]; then
+                # Use jq to produce a properly quoted TOML string value
+                echo "$entry_json" | jq -r '"url = " + (.url | @json)'
+            fi
+            if [ "$has_command" = "true" ]; then
+                echo "$entry_json" | jq -r '"command = " + (.command | @json)'
+                # args as TOML array with proper escaping
+                echo "$entry_json" | jq -r 'if .args then "args = [" + ([.args[] | @json] | join(", ")) + "]" else empty end'
+                # env as TOML inline table with proper escaping
+                echo "$entry_json" | jq -r 'if .env then "env = { " + ([.env | to_entries[] | "\(.key) = " + (.value | @json)] | join(", ")) + " }" else empty end' 2>/dev/null || true
+            fi
+        } >> "$config_file"
+    ) 200>"$lock_file"
 }
 
 # --- Agent adapters ---
@@ -180,7 +190,7 @@ apply_claude() {
     fi
 
     echo "configure-mcp: configuring Claude Code"
-    for server_name in $(jq -r 'keys[]' "$REGISTRY_FILE"); do
+    while IFS= read -r server_name; do
         entry=$(jq -c --arg name "$server_name" '.[$name]' "$REGISTRY_FILE")
         has_url=$(echo "$entry" | jq -r 'has("url")')
 
@@ -192,7 +202,7 @@ apply_claude() {
         fi
 
         merge_into_json "$claude_config" "$server_name" "$adapted"
-    done
+    done < <(jq -r 'keys[]' "$REGISTRY_FILE")
 }
 
 apply_codex() {
@@ -202,10 +212,10 @@ apply_codex() {
     fi
 
     echo "configure-mcp: configuring Codex"
-    for server_name in $(jq -r 'keys[]' "$REGISTRY_FILE"); do
+    while IFS= read -r server_name; do
         entry=$(jq -c --arg name "$server_name" '.[$name]' "$REGISTRY_FILE")
         merge_into_toml "$codex_config" "$server_name" "$entry"
-    done
+    done < <(jq -r 'keys[]' "$REGISTRY_FILE")
 }
 
 apply_devin() {
@@ -215,7 +225,7 @@ apply_devin() {
     fi
 
     echo "configure-mcp: configuring Devin"
-    for server_name in $(jq -r 'keys[]' "$REGISTRY_FILE"); do
+    while IFS= read -r server_name; do
         entry=$(jq -c --arg name "$server_name" '.[$name]' "$REGISTRY_FILE")
         has_url=$(echo "$entry" | jq -r 'has("url")')
 
@@ -227,7 +237,7 @@ apply_devin() {
         fi
 
         merge_into_json "$devin_config" "$server_name" "$adapted"
-    done
+    done < <(jq -r 'keys[]' "$REGISTRY_FILE")
 }
 
 apply_cursor() {
@@ -237,11 +247,11 @@ apply_cursor() {
     fi
 
     echo "configure-mcp: configuring Cursor"
-    for server_name in $(jq -r 'keys[]' "$REGISTRY_FILE"); do
+    while IFS= read -r server_name; do
         entry=$(jq -c --arg name "$server_name" '.[$name]' "$REGISTRY_FILE")
         # Cursor: just url for remote, command+args for stdio — no type field needed
         merge_into_json "$cursor_config" "$server_name" "$entry"
-    done
+    done < <(jq -r 'keys[]' "$REGISTRY_FILE")
 }
 
 apply_copilot() {
@@ -251,7 +261,7 @@ apply_copilot() {
     fi
 
     echo "configure-mcp: configuring GitHub Copilot"
-    for server_name in $(jq -r 'keys[]' "$REGISTRY_FILE"); do
+    while IFS= read -r server_name; do
         entry=$(jq -c --arg name "$server_name" '.[$name]' "$REGISTRY_FILE")
         has_url=$(echo "$entry" | jq -r 'has("url")')
 
@@ -263,7 +273,7 @@ apply_copilot() {
         fi
 
         merge_into_json "$copilot_config" "$server_name" "$adapted"
-    done
+    done < <(jq -r 'keys[]' "$REGISTRY_FILE")
 }
 
 # --- Run all adapters (each is a no-op if agent not detected) ---
@@ -279,6 +289,7 @@ APPLIER_EOF
 chmod +x /usr/local/bin/configure-mcp.sh
 
 # Make registry path available in login shells
+rm -f /etc/profile.d/mcp-servers.sh
 cat > /etc/profile.d/mcp-servers.sh << EOF
 export MCP_SERVERS_REGISTRY_PATH="$REGISTRY_PATH"
 EOF
@@ -291,7 +302,17 @@ fi
 
 # Ensure jq is available (configure-mcp.sh depends on it)
 if ! command -v jq >/dev/null 2>&1; then
-    apt-get update -y && apt-get install -y jq && rm -rf /var/lib/apt/lists/*
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get update -y && apt-get install -y jq && rm -rf /var/lib/apt/lists/*
+    elif command -v apk >/dev/null 2>&1; then
+        apk add --no-cache jq
+    elif command -v dnf >/dev/null 2>&1; then
+        dnf install -y jq
+    elif command -v yum >/dev/null 2>&1; then
+        yum install -y jq
+    else
+        echo "Warning: jq not found and no supported package manager available" >&2
+    fi
 fi
 
 echo "MCP Servers Registry applier installed successfully!"

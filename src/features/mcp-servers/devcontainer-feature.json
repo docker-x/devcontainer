@@ -11,9 +11,6 @@
     "mcp-servers",
     "config"
   ],
-  "containerEnv": {
-    "MCP_SERVERS_REGISTRY_PATH": ".devcontainer/mcp-servers.json"
-  },
   "dependsOn": {
     "ghcr.io/docker-x/devcontainers/agent-config": {}
   },
