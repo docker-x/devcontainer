@@ -9,6 +9,11 @@ set -e
 SONAR_VERSION="${VERSION:-8.1.0.6389}"
 INCLUDE_JRE="${INCLUDEJRE:-true}"
 
+# Resolve remote user home (OpenShift restricted SCC can set HOME=/).
+REMOTE_USER="${_REMOTE_USER:-${_CONTAINER_USER:-root}}"
+REMOTE_USER_HOME="${_REMOTE_USER_HOME:-$(getent passwd "$REMOTE_USER" 2>/dev/null | cut -d: -f6)}"
+REMOTE_USER_HOME="${REMOTE_USER_HOME:-/home/vscode}"
+
 echo "Installing SonarScanner CLI ${SONAR_VERSION} (includeJre: ${INCLUDE_JRE})..."
 
 # --- Ensure curl + unzip are present ---
@@ -48,11 +53,11 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 
 # --- Download the .sha256 file (CWE-494: integrity verification) ---
 echo "Downloading checksum: ${SONAR_SHA_URL}"
-curl -fsSL --proto =https "$SONAR_SHA_URL" -o "${WORK_DIR}/checksum.sha256"
+curl -fsSL --proto =https --proto-redir =https "$SONAR_SHA_URL" -o "${WORK_DIR}/checksum.sha256"
 
 # --- Download the zip ---
 echo "Downloading: ${SONAR_ZIP_URL}"
-curl -fsSL --proto =https "$SONAR_ZIP_URL" -o "${WORK_DIR}/${SONAR_ZIP}"
+curl -fsSL --proto =https --proto-redir =https "$SONAR_ZIP_URL" -o "${WORK_DIR}/${SONAR_ZIP}"
 
 # --- Verify SHA-256 ---
 # The .sha256 file contains just the hash (no filename).
@@ -82,9 +87,11 @@ ln -sf "${SONAR_HOME}/bin/sonar-scanner" /usr/local/bin/sonar-scanner
 ln -sf "${SONAR_HOME}/bin/sonar-scanner-debug" /usr/local/bin/sonar-scanner-debug
 
 # --- Env exports ---
+# Use REMOTE_USER_HOME for SONAR_USER_HOME, not $HOME — OpenShift restricted
+# SCC sets HOME=/ which would write cache to /.sonar (ephemeral, not PVC-backed).
 cat > /etc/profile.d/sonar.sh <<EOF
 export SONAR_SCANNER_HOME="${SONAR_HOME}"
-export SONAR_USER_HOME="\${HOME}/.sonar"
+export SONAR_USER_HOME="${REMOTE_USER_HOME}/.sonar"
 export PATH="${SONAR_HOME}/bin:\$PATH"
 EOF
 chmod 0755 /etc/profile.d/sonar.sh

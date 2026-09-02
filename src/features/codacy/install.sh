@@ -18,7 +18,7 @@ fi
 
 # --- Resolve version ---
 if [[ "$VERSION" == "latest" ]]; then
-    VERSION=$(curl -fsSL --proto =https https://api.github.com/repos/codacy/codacy-cli-v2/releases/latest | jq -r '.tag_name')
+    VERSION=$(curl -fsSL --proto =https --proto-redir =https https://api.github.com/repos/codacy/codacy-cli-v2/releases/latest | jq -r '.tag_name')
     if [[ -z "$VERSION" || "$VERSION" == "null" ]]; then
         echo "Error: could not determine latest Codacy CLI release tag." >&2
         exit 1
@@ -44,11 +44,11 @@ CODACY_CHECKSUMS_URL="${CODACY_BASE}/codacy-cli-v2_${VERSION}_checksums.txt"
 
 # --- Download checksums file (CWE-494: integrity verification) ---
 echo "Downloading checksums: ${CODACY_CHECKSUMS_URL}"
-curl -fsSL --proto =https "$CODACY_CHECKSUMS_URL" -o "${WORK_DIR}/checksums.txt"
+curl -fsSL --proto =https --proto-redir =https "$CODACY_CHECKSUMS_URL" -o "${WORK_DIR}/checksums.txt"
 
 # --- Download the release tarball ---
 echo "Downloading: ${CODACY_ASSET_URL}"
-curl -fsSL --proto =https "$CODACY_ASSET_URL" -o "${WORK_DIR}/${CODACY_ASSET}"
+curl -fsSL --proto =https --proto-redir =https "$CODACY_ASSET_URL" -o "${WORK_DIR}/${CODACY_ASSET}"
 
 # --- Verify SHA-256 against the publisher's checksums file ---
 EXPECTED_SHA=$(grep "  ${CODACY_ASSET}\$" "${WORK_DIR}/checksums.txt" | awk '{print $1}')
