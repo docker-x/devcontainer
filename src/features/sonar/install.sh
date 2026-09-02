@@ -36,7 +36,7 @@ if [[ "$INCLUDE_JRE" == "true" ]]; then
     SONAR_DIR="sonar-scanner-${SONAR_VERSION}-linux-${SONAR_ARCH}"
 else
     SONAR_ZIP="sonar-scanner-cli-${SONAR_VERSION}.zip"
-    SONAR_DIR="sonar-scanner-cli-${SONAR_VERSION}"
+    SONAR_DIR="sonar-scanner-${SONAR_VERSION}"
 fi
 
 SONAR_ZIP_URL="${SONAR_BASE}/${SONAR_ZIP}"

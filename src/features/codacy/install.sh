@@ -18,7 +18,7 @@ fi
 
 # --- Resolve version ---
 if [[ "$VERSION" == "latest" ]]; then
-    VERSION=$(curl -fsSL https://api.github.com/repos/codacy/codacy-cli-v2/releases/latest | jq -r '.tag_name')
+    VERSION=$(curl -fsSL --proto =https https://api.github.com/repos/codacy/codacy-cli-v2/releases/latest | jq -r '.tag_name')
     if [[ -z "$VERSION" || "$VERSION" == "null" ]]; then
         echo "Error: could not determine latest Codacy CLI release tag." >&2
         exit 1
@@ -71,8 +71,8 @@ install -m 755 "${WORK_DIR}/codacy-cli-v2" /usr/local/bin/codacy-cli-v2
 ln -sf /usr/local/bin/codacy-cli-v2 /usr/local/bin/codacy-cli
 
 # --- Env exports for non-login shells ---
-cat > /etc/profile.d/codacy.sh <<'EOF'
-export CODACY_CLI_V2_VERSION=""
+cat > /etc/profile.d/codacy.sh <<EOF
+export CODACY_CLI_V2_VERSION="${VERSION}"
 EOF
 chmod 0755 /etc/profile.d/codacy.sh
 
