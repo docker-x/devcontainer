@@ -2,7 +2,7 @@
   "id": "mcp-servers",
   "version": "1.0.0",
   "name": "MCP Servers Registry",
-  "description": "Installs an idempotent configure-mcp.sh applier that reads a JSON registry of MCP servers and merges them into each detected agent's native config format (Claude, Codex, Devin, Cursor, Copilot). The registry file is a plain JSON file in the project, not a feature option.",
+  "description": "Installs an idempotent configure-mcp.sh applier that reads a JSON registry of MCP servers and merges them into each detected agent's native config format (Claude, Codex, Devin, Cursor, Copilot). The registry content is a plain JSON file in the project, not a feature option; the registryPath option only overrides its location.",
   "documentationURL": "https://github.com/docker-x/devcontainers#mcp-servers",
   "keywords": [
     "ai",

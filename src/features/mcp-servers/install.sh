@@ -113,19 +113,21 @@ merge_into_json() {
     local config_file="$1" server_name="$2" entry_json="$3"
     local tmp lock_file="${config_file}.lock"
 
+    # Create parent directory before opening lock file (flock redirect fails otherwise)
+    mkdir -p "$(dirname "$config_file")"
+
     (
         flock -x 200
 
         # Create file with empty mcpServers if it doesn't exist
         if [ ! -f "$config_file" ]; then
-            mkdir -p "$(dirname "$config_file")"
             echo '{"mcpServers": {}}' > "$config_file"
         fi
 
-        # Ensure mcpServers key exists
+        # Ensure mcpServers key exists (atomic write via temp file + mv)
         if ! jq -e '.mcpServers' "$config_file" >/dev/null 2>&1; then
             tmp=$(jq '. + {"mcpServers": {}}' "$config_file")
-            echo "$tmp" > "$config_file"
+            echo "$tmp" > "$config_file.tmp.$$" && mv "$config_file.tmp.$$" "$config_file"
         fi
 
         # Merge: only set if not already present (don't overwrite user config)
@@ -134,7 +136,7 @@ merge_into_json() {
         else
             tmp=$(jq --arg name "$server_name" --argjson entry "$entry_json" \
                 '.mcpServers[$name] = $entry' "$config_file")
-            echo "$tmp" > "$config_file"
+            echo "$tmp" > "$config_file.tmp.$$" && mv "$config_file.tmp.$$" "$config_file"
         fi
     ) 200>"$lock_file"
 }
@@ -143,29 +145,33 @@ merge_into_json() {
 # Args: $1=config_file, $2=server_name, $3=entry_json
 merge_into_toml() {
     local config_file="$1" server_name="$2" entry_json="$3"
-    local has_url has_command lock_file="${config_file}.lock"
+    local has_url has_command toml_key lock_file="${config_file}.lock"
 
     has_url=$(echo "$entry_json" | jq -r 'has("url")')
     has_command=$(echo "$entry_json" | jq -r 'has("command")')
+    # Quoted key is valid TOML for any server name (handles dots, spaces, etc.)
+    toml_key=$(printf '%s' "$server_name" | jq -Rr '@json')
+
+    # Create parent directory before opening lock file (flock redirect fails otherwise)
+    mkdir -p "$(dirname "$config_file")"
 
     (
         flock -x 200
 
         # Create file if it doesn't exist
         if [ ! -f "$config_file" ]; then
-            mkdir -p "$(dirname "$config_file")"
             touch "$config_file"
         fi
 
         # Skip if server already configured (use -F for fixed string, no regex injection)
-        if grep -qF "[mcp_servers.$server_name]" "$config_file" 2>/dev/null; then
+        if grep -qF "[mcp_servers.$toml_key]" "$config_file" 2>/dev/null; then
             return 0
         fi
 
-        # Append TOML block with proper escaping via jq @sh filter
+        # Append TOML block with proper escaping via jq @json filter
         {
             echo ""
-            echo "[mcp_servers.$server_name]"
+            echo "[mcp_servers.$toml_key]"
             if [ "$has_url" = "true" ]; then
                 # Use jq to produce a properly quoted TOML string value
                 echo "$entry_json" | jq -r '"url = " + (.url | @json)'
@@ -174,8 +180,8 @@ merge_into_toml() {
                 echo "$entry_json" | jq -r '"command = " + (.command | @json)'
                 # args as TOML array with proper escaping
                 echo "$entry_json" | jq -r 'if .args then "args = [" + ([.args[] | @json] | join(", ")) + "]" else empty end'
-                # env as TOML inline table with proper escaping
-                echo "$entry_json" | jq -r 'if .env then "env = { " + ([.env | to_entries[] | "\(.key) = " + (.value | @json)] | join(", ")) + " }" else empty end' 2>/dev/null || true
+                # env as TOML inline table with proper escaping (quote keys too)
+                echo "$entry_json" | jq -r 'if .env then "env = { " + ([.env | to_entries[] | (.key | @json) + " = " + (.value | @json)] | join(", ")) + " }" else empty end' 2>/dev/null || true
             fi
         } >> "$config_file"
     ) 200>"$lock_file"
@@ -288,11 +294,16 @@ APPLIER_EOF
 
 chmod +x /usr/local/bin/configure-mcp.sh
 
-# Make registry path available in login shells
+# Bake the configured registry path into the applier as its default.
+# postStartCommand runs in a non-login shell that doesn't source /etc/profile.d,
+# so the environment export alone is not sufficient. The env var remains as
+# an override for runtime customization.
+sed -i "s|^REGISTRY_PATH=.*|REGISTRY_PATH=\"\${MCP_SERVERS_REGISTRY_PATH:-${REGISTRY_PATH}}\"|" \
+    /usr/local/bin/configure-mcp.sh
+
+# Make registry path available in login shells (use printf %q for safe quoting)
 rm -f /etc/profile.d/mcp-servers.sh
-cat > /etc/profile.d/mcp-servers.sh << EOF
-export MCP_SERVERS_REGISTRY_PATH="$REGISTRY_PATH"
-EOF
+printf 'export MCP_SERVERS_REGISTRY_PATH=%q\n' "$REGISTRY_PATH" > /etc/profile.d/mcp-servers.sh
 chmod +x /etc/profile.d/mcp-servers.sh
 
 # Also set in /etc/environment for non-login shells
