@@ -313,7 +313,7 @@ chmod 0755 /usr/local/bin/agent-skills-sync
 # (including tmux sessions) continue re-running the sync.
 rm -f /etc/profile.d/agent-skills.sh
 if [ -f /etc/bash.bashrc ]; then
-  sed -i '/agent-skills\.sh/d' /etc/bash.bashrc
+  sed -i '/agent-skills\.sh/d' /etc/bash.bashrc 2>/dev/null || true
 fi
 
 echo "agent-skills: runtime sync script at /usr/local/bin/agent-skills-sync"
