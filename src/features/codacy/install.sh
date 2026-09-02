@@ -77,4 +77,9 @@ EOF
 chmod 0755 /etc/profile.d/codacy.sh
 
 echo "Codacy CLI v2 installed successfully!"
-/usr/local/bin/codacy-cli-v2 --version 2>/dev/null || true
+# Verify the binary exists and is executable. We don't run --version here
+# because cross-arch builds (e.g. arm64 binary on amd64 host) can't execute it.
+if [[ ! -x /usr/local/bin/codacy-cli-v2 ]]; then
+    echo "Error: codacy-cli-v2 binary not executable" >&2
+    exit 1
+fi

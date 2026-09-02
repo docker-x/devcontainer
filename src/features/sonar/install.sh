@@ -96,9 +96,16 @@ export PATH="${SONAR_HOME}/bin:\$PATH"
 EOF
 chmod 0755 /etc/profile.d/sonar.sh
 
-# Persist SONAR_SCANNER_HOME in /etc/environment for non-login shells.
+# Persist env vars in /etc/environment for non-login shells.
 grep -q "^SONAR_SCANNER_HOME=" /etc/environment 2>/dev/null || \
     echo "SONAR_SCANNER_HOME=\"${SONAR_HOME}\"" >> /etc/environment
+grep -q "^SONAR_USER_HOME=" /etc/environment 2>/dev/null || \
+    echo "SONAR_USER_HOME=\"${REMOTE_USER_HOME}/.sonar\"" >> /etc/environment
 
 echo "SonarScanner CLI installed successfully!"
-/usr/local/bin/sonar-scanner --version 2>/dev/null || true
+# Verify the binary exists and is executable. We don't run --version here
+# because cross-arch builds (e.g. arm64 binary on amd64 host) can't execute it.
+if [[ ! -x /usr/local/bin/sonar-scanner ]]; then
+    echo "Error: sonar-scanner binary not executable" >&2
+    exit 1
+fi
