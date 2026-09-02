@@ -1,19 +1,30 @@
 #!/usr/bin/env bash
 set -e
 
-# Agent Skills — ships a runtime script that installs agent skills using the
-# already-authenticated gh CLI on the PVC, and creates per-agent symlinks.
+# Agent Skills — installs agent skills globally using `npx skills add -g`.
 #
-# Why runtime, not build-time?
-#   - gh auth lives on the PVC (~/.config/gh/hosts.yml), only available at runtime
-#   - Private repos (e.g. theplenkov-ai/skills) need that auth — no token in the image
-#   - Skills persist on the PVC across pod recreations
+# This feature is GitHub-agnostic: it delegates to the `skills` CLI
+# (vercel-labs/skills), which uses `git clone` under the hood with `gh` as
+# an auth fallback for private repos. The feature does NOT call `gh skill`
+# directly — that created a separate lock file that `npx skills update`
+# could not read.
 #
-# What this feature does at build time:
-#   1. Writes /usr/local/bin/agent-skills-sync — runtime script (runs at login)
-#   2. Writes /etc/profile.d/agent-skills.sh — sources the sync script
-#   3. Optionally installs PUBLIC skills to /usr/local/share/agent-skills (system-wide,
-#      outside PVC) as a fallback for environments without gh auth
+# What this feature does:
+#   1. Build-time: attempts to install PUBLIC skills to a system-wide store
+#      as a fallback (no auth needed).
+#   2. Writes /usr/local/bin/agent-skills-sync — a runtime script that:
+#      a. Runs `npx skills add <repo> -g -y` for each configured package
+#      b. Creates per-agent symlinks so each agent finds skills in its
+#         expected directory
+#   3. Writes /etc/profile.d/agent-skills.sh — sources the sync script at login
+#
+# The runtime script creates a proper `~/.agents/.skill-lock.json` (v3 format)
+# that `npx skills update -g` reads natively.
+#
+# Requirements (ensured by the devcontainer, not this feature):
+#   - `gh` authed on the PVC (for private repos) — npx skills uses it as
+#     a git auth fallback via `gh repo clone`
+#   - `node` / `npx` available (via the node feature)
 
 AGENTS="${AGENTS:-*}"
 
@@ -32,12 +43,8 @@ echo "agent-skills: skills=${SKILLS[*]}"
 echo "agent-skills: agents=${AGENTS}"
 
 # ---------------------------------------------------------------------------
-# Build-time: install PUBLIC skills to system-wide store (fallback)
-# No token handling — public repos don't need auth. If GH_TOKEN is set in
-# the environment, gh picks it up automatically (no gh auth login needed,
-# which would bake credentials into the image).
+# Helper: run a command as the remote user
 # ---------------------------------------------------------------------------
-
 run_as_user() {
   if [[ "$REMOTE_USER" == "root" ]]; then
     env HOME="${HOME_DIR}" "$@"
@@ -52,18 +59,42 @@ run_as_user() {
   fi
 }
 
+# ---------------------------------------------------------------------------
+# Build-time: install PUBLIC skills to system-wide store (fallback)
+# npx skills uses git clone — public repos work without auth.
+# If GH_TOKEN is set in the environment, git picks it up automatically.
+# ---------------------------------------------------------------------------
 mkdir -p "$SKILLS_STORE"
 chown "${REMOTE_USER}:${REMOTE_USER}" "$SKILLS_STORE" 2>/dev/null || true
+
+# npx skills add -g always installs to $HOME/.agents/skills — no --dir flag.
+# To install to the system store (outside PVC), use a temporary HOME.
+BUILD_HOME="${SKILLS_STORE}/.build-home"
+mkdir -p "$BUILD_HOME"
 
 if [[ ${#SKILLS[@]} -gt 0 ]]; then
   for pkg in "${SKILLS[@]}"; do
     pkg=$(echo "${pkg}" | xargs)
     [[ -z "${pkg}" ]] && continue
     echo "agent-skills: attempting build-time install of ${pkg} (public only)"
-    run_as_user gh skill install "${pkg}" --dir "${SKILLS_STORE}" --all --force 2>&1 || {
-      echo "agent-skills: build-time install failed for ${pkg} (likely private — will retry at runtime)"
-    }
+    # Run npx skills with HOME pointed at the build home so it writes there.
+    # --copy so the store has real files (not symlinks into a user home).
+    if [[ "$REMOTE_USER" == "root" ]]; then
+      env HOME="$BUILD_HOME" npx -y skills add "${pkg}" -g -a devin --copy -y 2>&1 || {
+        echo "agent-skills: build-time install failed for ${pkg} (likely private — will retry at runtime)"
+      }
+    else
+      su -s /bin/bash "$REMOTE_USER" -c "export HOME='$BUILD_HOME'; npx -y skills add '$pkg' -g -a devin --copy -y" 2>&1 || {
+        echo "agent-skills: build-time install failed for ${pkg} (likely private — will retry at runtime)"
+      }
+    fi
   done
+fi
+
+# Move installed skills from build home to the system store root
+if [[ -d "${BUILD_HOME}/.agents/skills" ]]; then
+  cp -r "${BUILD_HOME}/.agents/skills/." "${SKILLS_STORE}/" 2>/dev/null || true
+  rm -rf "$BUILD_HOME"
 fi
 
 SKILL_COUNT=$(find "${SKILLS_STORE}" -maxdepth 2 -name "SKILL.md" 2>/dev/null | wc -l)
@@ -75,8 +106,8 @@ rm -f "${HOME_DIR}/.config/gh/hosts.yml" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
 # Known agents → skills directory mapping
+# Mirrors the agents.ts registry in vercel-labs/skills.
 # ---------------------------------------------------------------------------
-
 KNOWN_AGENTS=(
   "devin:.config/devin/skills"
   "claude-code:.claude/skills"
@@ -109,9 +140,8 @@ fi
 
 # ---------------------------------------------------------------------------
 # Write runtime sync script: /usr/local/bin/agent-skills-sync
+# Uses npx skills add -g so the lock file is compatible with npx skills update
 # ---------------------------------------------------------------------------
-
-# Build the skills list as a space-separated string (POSIX sh compatible)
 SKILLS_STRING=""
 for pkg in "${SKILLS[@]}"; do
   pkg=$(echo "${pkg}" | xargs)
@@ -129,17 +159,21 @@ done
 cat > /usr/local/bin/agent-skills-sync << SYNC_EOF
 #!/bin/sh
 # Agent Skills sync — runs at login to:
-#   1. Install skills from GitHub repos using existing gh auth (on PVC)
+#   1. Install skills from GitHub repos using npx skills add -g
+#      (uses git clone with gh auth fallback for private repos)
 #   2. Create per-agent symlinks so each agent finds skills in its expected dir
 #
-# Idempotent: creates .skill-lock.json (with version) after successful install.
-# Fallback (no gh auth): links to system store but does NOT create lock file,
+# Creates a proper ~/.agents/.skill-lock.json (v3 format) that
+# \`npx skills update -g\` reads natively.
+#
+# Idempotent: skips install if lock file already has skill entries.
+# Fallback (no gh auth): links to system store but does NOT install,
 # so later runs with auth can still install real skills.
 
 AGENT_SKILLS_STORE="/usr/local/share/agent-skills"
 SKILLS_REPOS="${SKILLS_STRING# }"
 HOME_FALLBACK="${HOME_DIR}"
-LOCK_VERSION="2"
+LOCK_VERSION="3"
 
 # Fix HOME for OpenShift restricted SCC (sets HOME=/)
 _H="\${HOME:-\$HOME_FALLBACK}"
@@ -164,42 +198,46 @@ _count_skills() {
   fi
 }
 
-# --- 1. Install skills if not already done ---
-# Lock file contains version number. v1 (from 1.1.0) is invalidated — it was
-# written even on total failure. v2+ means at least one repo succeeded THIS run.
-_lock_valid=false
+# Helper: check if the npx skills lock file has real entries (v3 format)
+_lock_valid() {
+  [ -f "\$LOCK_FILE" ] || return 1
+  # Old feature wrote just "2" — not valid for npx skills
+  grep -q '"version"' "\$LOCK_FILE" 2>/dev/null || return 1
+  _count=\$(grep -c '"sourceType"' "\$LOCK_FILE" 2>/dev/null || echo 0)
+  [ "\$_count" -gt 0 ]
+}
+
+# --- 1. Remove stale lock from old gh-based feature ---
 if [ -f "\$LOCK_FILE" ]; then
-  _lock_ver=\$(cat "\$LOCK_FILE" 2>/dev/null)
-  [ "\$_lock_ver" = "\$LOCK_VERSION" ] && _lock_valid=true
+  if ! grep -q '"version"' "\$LOCK_FILE" 2>/dev/null; then
+    echo "agent-skills: removing stale lock from gh-based feature"
+    rm -f "\$LOCK_FILE"
+  fi
 fi
 
-if [ "\$_lock_valid" = "false" ]; then
-  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-    echo "agent-skills: installing skills via gh (first run)..."
+# --- 2. Install skills if not already done ---
+if ! _lock_valid; then
+  if command -v npx >/dev/null 2>&1 && command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+    echo "agent-skills: installing skills via npx skills add -g (first run)..."
     mkdir -p "\$AGENTS_DIR"
-    # Remove stale fallback symlink so gh installs to real PVC dir, not system store
+    # Remove stale fallback symlink so npx skills installs to real PVC dir
     if [ -L "\$SKILLS_DIR" ]; then
       rm -f "\$SKILLS_DIR"
     fi
-    # Count skills before install to detect if THIS run added any
-    _before=\$(_count_skills "\$SKILLS_DIR")
-    _any_success=false
+    mkdir -p "\$SKILLS_DIR" 2>/dev/null
     for repo in \$SKILLS_REPOS; do
-      if gh skill install "\$repo" --dir "\$SKILLS_DIR" --all --force 2>/dev/null; then
-        _any_success=true
+      if npx -y skills add "\$repo" -g -a devin -y 2>/dev/null; then
+        echo "agent-skills: installed \$repo"
       else
         echo "agent-skills: failed to install \$repo (skipping)"
       fi
     done
-    # Only lock if this run actually installed new skills
-    _after=\$(_count_skills "\$SKILLS_DIR")
-    if [ "\$_any_success" = "true" ] && [ "\$_after" -gt "\$_before" ]; then
-      echo "\$LOCK_VERSION" > "\$LOCK_FILE"
-    fi
+  else
+    echo "agent-skills: npx or gh not ready, skipping install (will retry next login)"
   fi
 fi
 
-# --- 2. Ensure ~/.agents/skills exists ---
+# --- 3. Ensure ~/.agents/skills exists ---
 # If no PVC skills dir, link to system store (but only if it has real skills)
 # This is a fallback — does NOT create lock file, so later runs with auth can retry
 if [ ! -e "\$SKILLS_DIR" ] && _has_skills "\$AGENT_SKILLS_STORE"; then
@@ -207,7 +245,7 @@ if [ ! -e "\$SKILLS_DIR" ] && _has_skills "\$AGENT_SKILLS_STORE"; then
   ln -sfn "\$AGENT_SKILLS_STORE" "\$SKILLS_DIR"
 fi
 
-# --- 3. Create per-agent symlinks ---
+# --- 4. Create per-agent symlinks ---
 _agent_skills_link() {
   _target="\$_H/\$1"
   _parent="\$(dirname "\$_target")"
@@ -230,7 +268,6 @@ chmod 0755 /usr/local/bin/agent-skills-sync
 # ---------------------------------------------------------------------------
 # Write profile.d script that calls the sync script
 # ---------------------------------------------------------------------------
-
 cat > /etc/profile.d/agent-skills.sh << 'PROFILE_EOF'
 #!/bin/sh
 # Agent Skills — run sync at login (installs skills + creates symlinks)

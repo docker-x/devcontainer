@@ -1,8 +1,8 @@
 {
   "id": "agent-skills",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "name": "Agent Skills",
-  "description": "Install agent skills at runtime using existing gh auth. Ships a sync script (profile.d) that installs skills from GitHub repos on first login and creates per-agent symlinks. No token needed — uses the gh auth already on the PVC. Public skills are also installed at build time as a fallback.",
+  "description": "Install agent skills globally via npx skills (vercel-labs/skills). Ships a runtime sync script that uses git clone with gh auth fallback for private repos, creates a proper lock file for npx skills update, and per-agent symlinks. GitHub-agnostic — the devcontainer ensures gh is authed before sync runs.",
   "documentationURL": "https://github.com/docker-x/devcontainers#agent-skills",
   "keywords": [
     "ai",
