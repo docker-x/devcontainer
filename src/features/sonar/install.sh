@@ -85,11 +85,14 @@ ln -sf "${SONAR_HOME}/bin/sonar-scanner-debug" /usr/local/bin/sonar-scanner-debu
 # --- Env exports ---
 # Use REMOTE_USER_HOME for SONAR_USER_HOME, not $HOME — OpenShift restricted
 # SCC sets HOME=/ which would write cache to /.sonar (ephemeral, not PVC-backed).
+# Shell-quote paths to prevent injection via metacharacters in REMOTE_USER_HOME.
+SONAR_HOME_ESCAPED=$(printf '%q' "$SONAR_HOME")
+SONAR_USER_HOME_ESCAPED=$(printf '%q' "${REMOTE_USER_HOME}/.sonar")
 rm -f /etc/profile.d/sonar.sh
 cat > /etc/profile.d/sonar.sh <<EOF
-export SONAR_SCANNER_HOME="${SONAR_HOME}"
-export SONAR_USER_HOME="${REMOTE_USER_HOME}/.sonar"
-export PATH="${SONAR_HOME}/bin:\$PATH"
+export SONAR_SCANNER_HOME=${SONAR_HOME_ESCAPED}
+export SONAR_USER_HOME=${SONAR_USER_HOME_ESCAPED}
+export PATH=${SONAR_HOME_ESCAPED}/bin:\$PATH
 EOF
 chmod 0755 /etc/profile.d/sonar.sh
 
