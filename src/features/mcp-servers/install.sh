@@ -171,11 +171,18 @@ merge_into_toml() {
         # Use awk to normalize lines (strip comments and whitespace) before comparing,
         # so headers with trailing whitespace or inline comments are still detected.
         # The quoted form ([mcp_servers."name"]) handles all valid TOML keys;
-        # the unquoted form ([mcp_servers.name]) is the common case for simple keys.
+        # the unquoted form ([mcp_servers.name]) is only checked for simple bare keys
+        # (A-Za-z0-9_-), since names with dots create different TOML semantics when
+        # unquoted (nested tables vs single quoted key).
+        # Use ENVIRON instead of -v to avoid awk escape processing for names
+        # containing backslashes or other special characters.
         local header="[mcp_servers.$toml_key]"
-        local bare_header="[mcp_servers.$server_name]"
-        if awk -v h="$header" -v b="$bare_header" '
-            { sub(/#.*$/, ""); gsub(/^[[:space:]]+|[[:space:]]+$/, ""); if ($0 == h || $0 == b) { found = 1; exit } }
+        local bare_header=""
+        if printf '%s' "$server_name" | grep -qE '^[A-Za-z0-9_-]+$'; then
+            bare_header="[mcp_servers.$server_name]"
+        fi
+        if HEADER="$header" BARE_HEADER="$bare_header" awk '
+            { sub(/#.*$/, ""); gsub(/^[[:space:]]+|[[:space:]]+$/, ""); if ($0 == ENVIRON["HEADER"] || (ENVIRON["BARE_HEADER"] != "" && $0 == ENVIRON["BARE_HEADER"])) { found = 1; exit } }
             END { exit !found }
         ' "$config_file" 2>/dev/null; then
             return 0
