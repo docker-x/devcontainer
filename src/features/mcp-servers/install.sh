@@ -168,16 +168,16 @@ merge_into_toml() {
         fi
 
         # Skip if server already configured — check both quoted and unquoted forms.
-        # Use -x for exact full-line match (not substring) to avoid false positives
-        # from comments or string values containing the header pattern.
+        # Use awk to normalize lines (strip comments and whitespace) before comparing,
+        # so headers with trailing whitespace or inline comments are still detected.
         # The quoted form ([mcp_servers."name"]) handles all valid TOML keys;
         # the unquoted form ([mcp_servers.name]) is the common case for simple keys.
-        if grep -qxF "[mcp_servers.$toml_key]" "$config_file" 2>/dev/null; then
-            return 0
-        fi
-        # Also check unquoted bare-key form for simple names (A-Za-z0-9_-)
-        if printf '%s' "$server_name" | grep -qE '^[A-Za-z0-9_-]+$' && \
-           grep -qxF "[mcp_servers.$server_name]" "$config_file" 2>/dev/null; then
+        local header="[mcp_servers.$toml_key]"
+        local bare_header="[mcp_servers.$server_name]"
+        if awk -v h="$header" -v b="$bare_header" '
+            { sub(/#.*$/, ""); gsub(/^[[:space:]]+|[[:space:]]+$/, ""); if ($0 == h || $0 == b) { found = 1; exit } }
+            END { exit !found }
+        ' "$config_file" 2>/dev/null; then
             return 0
         fi
 
