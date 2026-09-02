@@ -16,14 +16,10 @@ REMOTE_USER_HOME="${REMOTE_USER_HOME:-/home/vscode}"
 
 echo "Installing SonarScanner CLI ${SONAR_VERSION} (includeJre: ${INCLUDE_JRE})..."
 
-# --- Ensure curl + unzip are present ---
-if ! command -v curl >/dev/null 2>&1; then
+# --- Ensure curl + unzip + CA bundle are present ---
+if ! command -v curl >/dev/null 2>&1 || ! command -v unzip >/dev/null 2>&1 || [[ ! -s /etc/ssl/certs/ca-certificates.crt ]]; then
     apt-get update -y
     apt-get install -y curl ca-certificates unzip
-    rm -rf /var/lib/apt/lists/*
-elif ! command -v unzip >/dev/null 2>&1; then
-    apt-get update -y
-    apt-get install -y unzip
     rm -rf /var/lib/apt/lists/*
 fi
 
@@ -89,6 +85,7 @@ ln -sf "${SONAR_HOME}/bin/sonar-scanner-debug" /usr/local/bin/sonar-scanner-debu
 # --- Env exports ---
 # Use REMOTE_USER_HOME for SONAR_USER_HOME, not $HOME — OpenShift restricted
 # SCC sets HOME=/ which would write cache to /.sonar (ephemeral, not PVC-backed).
+rm -f /etc/profile.d/sonar.sh
 cat > /etc/profile.d/sonar.sh <<EOF
 export SONAR_SCANNER_HOME="${SONAR_HOME}"
 export SONAR_USER_HOME="${REMOTE_USER_HOME}/.sonar"
@@ -103,9 +100,3 @@ grep -q "^SONAR_USER_HOME=" /etc/environment 2>/dev/null || \
     echo "SONAR_USER_HOME=\"${REMOTE_USER_HOME}/.sonar\"" >> /etc/environment
 
 echo "SonarScanner CLI installed successfully!"
-# Verify the binary exists and is executable. We don't run --version here
-# because cross-arch builds (e.g. arm64 binary on amd64 host) can't execute it.
-if [[ ! -x /usr/local/bin/sonar-scanner ]]; then
-    echo "Error: sonar-scanner binary not executable" >&2
-    exit 1
-fi

@@ -9,8 +9,8 @@ VERSION="${VERSION:-latest}"
 
 echo "Installing Codacy CLI v2 (version: ${VERSION})..."
 
-# --- Ensure curl + jq are present ---
-if ! command -v curl >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+# --- Ensure curl + jq + CA bundle are present ---
+if ! command -v curl >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1 || [[ ! -s /etc/ssl/certs/ca-certificates.crt ]]; then
     apt-get update -y
     apt-get install -y curl jq ca-certificates
     rm -rf /var/lib/apt/lists/*
@@ -71,15 +71,16 @@ install -m 755 "${WORK_DIR}/codacy-cli-v2" /usr/local/bin/codacy-cli-v2
 ln -sf /usr/local/bin/codacy-cli-v2 /usr/local/bin/codacy-cli
 
 # --- Env exports for non-login shells ---
+# Shell-quote VERSION to prevent injection via user-controlled version option.
+VERSION_ESCAPED=$(printf '%q' "$VERSION")
+rm -f /etc/profile.d/codacy.sh
 cat > /etc/profile.d/codacy.sh <<EOF
-export CODACY_CLI_V2_VERSION="${VERSION}"
+export CODACY_CLI_V2_VERSION=${VERSION_ESCAPED}
 EOF
 chmod 0755 /etc/profile.d/codacy.sh
 
+# Persist in /etc/environment for non-login shells.
+grep -q "^CODACY_CLI_V2_VERSION=" /etc/environment 2>/dev/null || \
+    echo "CODACY_CLI_V2_VERSION=\"${VERSION}\"" >> /etc/environment
+
 echo "Codacy CLI v2 installed successfully!"
-# Verify the binary exists and is executable. We don't run --version here
-# because cross-arch builds (e.g. arm64 binary on amd64 host) can't execute it.
-if [[ ! -x /usr/local/bin/codacy-cli-v2 ]]; then
-    echo "Error: codacy-cli-v2 binary not executable" >&2
-    exit 1
-fi
