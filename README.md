@@ -17,6 +17,8 @@ Devcontainer features and templates inspired by `gascity` and AI-agent tooling. 
 | `kilo` | Installs the Kilo CLI. |
 | `playwright` | Installs Playwright system dependencies. |
 | `sacp-conductor` | Installs `sacp-conductor` via Cargo. |
+| `codacy` | Installs Codacy CLI v2 for local code analysis. |
+| `sonar` | Installs SonarScanner CLI for SonarQube analysis. |
 
 ## Templates
 

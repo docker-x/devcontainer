@@ -1,0 +1,29 @@
+{
+  "id": "sonar",
+  "version": "1.0.0",
+  "name": "SonarScanner CLI",
+  "description": "Install the SonarScanner CLI for running SonarQube Server / SonarQube Cloud analysis locally.",
+  "documentationURL": "https://docs.sonarsource.com/sonarqube-server/analyzing-source-code/scanners/sonarscanner",
+  "keywords": [
+    "sonar",
+    "sonarqube",
+    "sonarscanner",
+    "static-analysis",
+    "code-quality"
+  ],
+  "options": {
+    "version": {
+      "type": "string",
+      "default": "8.1.0.6389",
+      "description": "Version of SonarScanner CLI to install (e.g. '8.1.0.6389')"
+    },
+    "includeJre": {
+      "type": "boolean",
+      "default": true,
+      "description": "Download the platform-specific bundle with a bundled JRE. When false, downloads the generic zip and a JRE must be installed separately."
+    }
+  },
+  "installsAfter": [
+    "ghcr.io/devcontainers/features/common-utils"
+  ]
+}

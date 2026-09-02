@@ -1,0 +1,24 @@
+{
+  "id": "codacy",
+  "version": "1.0.0",
+  "name": "Codacy CLI v2",
+  "description": "Install the Codacy CLI v2 for local code analysis and Codacy platform integration.",
+  "documentationURL": "https://github.com/codacy/codacy-cli-v2",
+  "keywords": [
+    "codacy",
+    "static-analysis",
+    "code-quality",
+    "linter",
+    "sast"
+  ],
+  "options": {
+    "version": {
+      "type": "string",
+      "default": "latest",
+      "description": "Version of Codacy CLI v2 to install (e.g. 'latest' or a release tag like '1.0.0-main.382.sha.473b61c')"
+    }
+  },
+  "installsAfter": [
+    "ghcr.io/devcontainers/features/common-utils"
+  ]
+}
