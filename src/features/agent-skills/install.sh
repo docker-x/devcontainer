@@ -204,10 +204,12 @@ _lock_valid() {
   # Verify every configured repo is present in the lock file.
   # If a new repo was added to SKILLS_REPOS after a previous install,
   # the lock is incomplete and we must re-run the install loop.
-  # Match the full owner/repo string to avoid false positives when two
-  # repos share a basename (e.g. theplenkov-ai/skills vs otherorg/skills).
+  # Strip @skill-name suffix (CLI stores normalized source without it),
+  # then match the exact "source": "owner/repo" field with fixed-string
+  # grep to avoid prefix collisions (acme/repo vs acme/repo2).
   for _repo in \$SKILLS_REPOS; do
-    grep -q "\$_repo" "\$LOCK_FILE" 2>/dev/null || return 1
+    _canonical=\${_repo%@*}
+    grep -Fq "\"source\": \"\$_canonical\"" "\$LOCK_FILE" 2>/dev/null || return 1
   done
   return 0
 }
