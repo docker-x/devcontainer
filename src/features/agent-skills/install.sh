@@ -192,6 +192,7 @@ _count_skills() {
 }
 
 # Helper: check if the npx skills lock file has real entries (v3 format)
+# and contains every configured repository.
 _lock_valid() {
   [ -f "\$LOCK_FILE" ] || return 1
   # Old feature wrote just "2" — not valid for npx skills
@@ -199,7 +200,17 @@ _lock_valid() {
   # Verify the lock file version is actually 3
   grep -q '"version"[[:space:]]*:[[:space:]]*3' "\$LOCK_FILE" 2>/dev/null || return 1
   _count=\$(grep -c '"sourceType"' "\$LOCK_FILE" 2>/dev/null || echo 0)
-  [ "\$_count" -gt 0 ]
+  [ "\$_count" -gt 0 ] || return 1
+  # Verify every configured repo is present in the lock file.
+  # If a new repo was added to SKILLS_REPOS after a previous install,
+  # the lock is incomplete and we must re-run the install loop.
+  for _repo in \$SKILLS_REPOS; do
+    # Extract the repo name (last path segment) for matching — the lock
+    # file stores repo names, not full URLs.
+    _repo_name=\$(basename "\$_repo")
+    grep -q "\$_repo_name" "\$LOCK_FILE" 2>/dev/null || return 1
+  done
+  return 0
 }
 
 # --- 1. Remove stale lock from old gh-based feature ---
