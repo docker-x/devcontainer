@@ -204,11 +204,31 @@ _lock_valid() {
   # Verify every configured repo is present in the lock file.
   # If a new repo was added to SKILLS_REPOS after a previous install,
   # the lock is incomplete and we must re-run the install loop.
-  # Strip @skill-name suffix (CLI stores normalized source without it),
-  # then match the exact "source": "owner/repo" field with fixed-string
-  # grep to avoid prefix collisions (acme/repo vs acme/repo2).
+  # Normalize the configured source to match what npx skills stores
+  # in the v3 lock file (the "source" field):
+  #   - owner/repo           → owner/repo
+  #   - owner/repo@skill     → owner/repo (strip @skill-name)
+  #   - https://github.com/owner/repo[.git] → owner/repo
+  #   - git@github.com:owner/repo.git       → owner/repo
   for _repo in \$SKILLS_REPOS; do
-    _canonical=\${_repo%@*}
+    _canonical="\$_repo"
+    # Strip @skill-name suffix (but not @host in SSH URLs)
+    case "\$_canonical" in
+      git@*|ssh://*) ;;  # SSH URL — don't strip @host
+      *) _canonical=\${_canonical%@*} ;;
+    esac
+    # Normalize SSH: git@github.com:owner/repo.git → owner/repo
+    case "\$_canonical" in
+      git@*:*) _canonical=\${_canonical#git@*:}; _canonical=\${_canonical%.git} ;;
+    esac
+    # Normalize HTTPS: https://github.com/owner/repo[.git] → owner/repo
+    case "\$_canonical" in
+      https://github.com/*|http://github.com/*)
+        _canonical=\${_canonical#https://github.com/}
+        _canonical=\${_canonical#http://github.com/}
+        _canonical=\${_canonical%.git}
+        ;;
+    esac
     grep -Fq "\"source\": \"\$_canonical\"" "\$LOCK_FILE" 2>/dev/null || return 1
   done
   return 0
