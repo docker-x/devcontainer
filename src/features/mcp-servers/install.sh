@@ -111,7 +111,7 @@ echo "configure-mcp: applying $SERVER_COUNT servers from $REGISTRY_FILE"
 # Args: $1=config_file, $2=server_name, $3=server_entry_json
 merge_into_json() {
     local config_file="$1" server_name="$2" entry_json="$3"
-    local tmp lock_file="${config_file}.lock"
+    local tmp tmp_file old_mode lock_file="${config_file}.lock"
 
     # Create parent directory before opening lock file (flock redirect fails otherwise)
     mkdir -p "$(dirname "$config_file")"
@@ -124,10 +124,14 @@ merge_into_json() {
             echo '{"mcpServers": {}}' > "$config_file"
         fi
 
+        # Capture original file mode to preserve it across atomic replacement
+        old_mode=$(stat -c '%a' "$config_file" 2>/dev/null || echo "644")
+        tmp_file="${config_file}.tmp.$$"
+
         # Ensure mcpServers key exists (atomic write via temp file + mv)
         if ! jq -e '.mcpServers' "$config_file" >/dev/null 2>&1; then
             tmp=$(jq '. + {"mcpServers": {}}' "$config_file")
-            echo "$tmp" > "$config_file.tmp.$$" && mv "$config_file.tmp.$$" "$config_file"
+            echo "$tmp" > "$tmp_file" && chmod "$old_mode" "$tmp_file" && mv "$tmp_file" "$config_file"
         fi
 
         # Merge: only set if not already present (don't overwrite user config)
@@ -136,7 +140,7 @@ merge_into_json() {
         else
             tmp=$(jq --arg name "$server_name" --argjson entry "$entry_json" \
                 '.mcpServers[$name] = $entry' "$config_file")
-            echo "$tmp" > "$config_file.tmp.$$" && mv "$config_file.tmp.$$" "$config_file"
+            echo "$tmp" > "$tmp_file" && chmod "$old_mode" "$tmp_file" && mv "$tmp_file" "$config_file"
         fi
     ) 200>"$lock_file"
 }
@@ -163,12 +167,22 @@ merge_into_toml() {
             touch "$config_file"
         fi
 
-        # Skip if server already configured (use -F for fixed string, no regex injection)
+        # Skip if server already configured — check both quoted and unquoted forms.
+        # The quoted form ([mcp_servers."name"]) handles all valid TOML keys;
+        # the unquoted form ([mcp_servers.name]) is the common case for simple keys.
         if grep -qF "[mcp_servers.$toml_key]" "$config_file" 2>/dev/null; then
             return 0
         fi
+        # Also check unquoted bare-key form for simple names (A-Za-z0-9_-)
+        if printf '%s' "$server_name" | grep -qE '^[A-Za-z0-9_-]+$' && \
+           grep -qF "[mcp_servers.$server_name]" "$config_file" 2>/dev/null; then
+            return 0
+        fi
 
-        # Append TOML block with proper escaping via jq @json filter
+        # Build TOML block and write atomically (temp file + mv, like merge_into_json).
+        # This prevents partial writes on interruption from corrupting config.toml.
+        local tmp_file="${config_file}.tmp.$$"
+        cp -p "$config_file" "$tmp_file"
         {
             echo ""
             echo "[mcp_servers.$toml_key]"
@@ -183,7 +197,8 @@ merge_into_toml() {
                 # env as TOML inline table with proper escaping (quote keys too)
                 echo "$entry_json" | jq -r 'if .env then "env = { " + ([.env | to_entries[] | (.key | @json) + " = " + (.value | @json)] | join(", ")) + " }" else empty end' 2>/dev/null || true
             fi
-        } >> "$config_file"
+        } >> "$tmp_file"
+        mv "$tmp_file" "$config_file"
     ) 200>"$lock_file"
 }
 
@@ -294,21 +309,24 @@ APPLIER_EOF
 
 chmod +x /usr/local/bin/configure-mcp.sh
 
-# Bake the configured registry path into the applier as its default.
+# Write the default registry path to an env file that configure-mcp.sh sources.
+# This avoids sed-based string interpolation (vulnerable to delimiter/injection
+# when the path contains special characters). printf %q produces safe shell quoting.
 # postStartCommand runs in a non-login shell that doesn't source /etc/profile.d,
 # so the environment export alone is not sufficient. The env var remains as
 # an override for runtime customization.
-sed -i "s|^REGISTRY_PATH=.*|REGISTRY_PATH=\"\${MCP_SERVERS_REGISTRY_PATH:-${REGISTRY_PATH}}\"|" \
-    /usr/local/bin/configure-mcp.sh
+CONFIG_DIR="${AGENT_CONFIG_DIR:-/usr/local/share/agent-config}"
+printf 'MCP_SERVERS_REGISTRY_DEFAULT=%q\n' "$REGISTRY_PATH" > "$CONFIG_DIR/mcp-registry-path.env"
 
 # Make registry path available in login shells (use printf %q for safe quoting)
 rm -f /etc/profile.d/mcp-servers.sh
 printf 'export MCP_SERVERS_REGISTRY_PATH=%q\n' "$REGISTRY_PATH" > /etc/profile.d/mcp-servers.sh
 chmod +x /etc/profile.d/mcp-servers.sh
 
-# Also set in /etc/environment for non-login shells
-if ! grep -q 'MCP_SERVERS_REGISTRY_PATH' /etc/environment 2>/dev/null; then
-    echo "MCP_SERVERS_REGISTRY_PATH=$REGISTRY_PATH" >> /etc/environment
+# Also set in /etc/environment for non-login shells (match full assignment to
+# avoid false positives from comments or similarly named variables)
+if ! grep -qE '^[[:space:]]*MCP_SERVERS_REGISTRY_PATH=' /etc/environment 2>/dev/null; then
+    printf 'MCP_SERVERS_REGISTRY_PATH=%q\n' "$REGISTRY_PATH" >> /etc/environment
 fi
 
 # Ensure jq is available (configure-mcp.sh depends on it)
