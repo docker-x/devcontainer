@@ -16,7 +16,9 @@ set -e
 #      a. Runs `npx skills add <repo> -g -y` for each configured package
 #      b. Creates per-agent symlinks so each agent finds skills in its
 #         expected directory
-#   3. Writes /etc/profile.d/agent-skills.sh — sources the sync script at login
+#   3. Does NOT install a profile.d hook — the sync script is a utility.
+#      Consumers should call it from postStartCommand (once per container
+#      start), NOT from a per-shell profile.d hook that fires on every login.
 #
 # The runtime script creates a proper `~/.agents/.skill-lock.json` (v3 format)
 # that `npx skills update -g` reads natively.
@@ -151,7 +153,7 @@ done
 
 cat > /usr/local/bin/agent-skills-sync << SYNC_EOF
 #!/bin/sh
-# Agent Skills sync — runs at login to:
+# Agent Skills sync — call from postStartCommand (NOT from profile.d):
 #   1. Install skills from GitHub repos using npx skills add -g
 #      (uses git clone with gh auth fallback for private repos)
 #   2. Create per-agent symlinks so each agent finds skills in its expected dir
@@ -293,21 +295,17 @@ SYNC_EOF
 chmod 0755 /usr/local/bin/agent-skills-sync
 
 # ---------------------------------------------------------------------------
-# Write profile.d script that calls the sync script
+# No profile.d / bash.bashrc hook.
+#
+# Previously this feature installed /etc/profile.d/agent-skills.sh and a line
+# in /etc/bash.bashrc that sourced the sync script on every login shell.
+# That meant every new tmux session (which starts a login shell) re-ran the
+# sync — spamming the terminal and re-invoking npx skills on each session.
+#
+# The sync script (/usr/local/bin/agent-skills-sync) is still installed as a
+# utility. Consumers should call it from postStartCommand or a similar
+# once-per-container-start hook, NOT from a per-shell profile.d hook.
 # ---------------------------------------------------------------------------
-cat > /etc/profile.d/agent-skills.sh << 'PROFILE_EOF'
-#!/bin/sh
-# Agent Skills — run sync at login (installs skills + creates symlinks)
-[ -x /usr/local/bin/agent-skills-sync ] && /usr/local/bin/agent-skills-sync
-PROFILE_EOF
-
-chmod 0755 /etc/profile.d/agent-skills.sh
-
-# Also source from bashrc for non-login interactive shells
-if ! grep -q 'agent-skills.sh' /etc/bash.bashrc 2>/dev/null; then
-  echo '[ -f /etc/profile.d/agent-skills.sh ] && . /etc/profile.d/agent-skills.sh' >> /etc/bash.bashrc
-fi
 
 echo "agent-skills: runtime sync script at /usr/local/bin/agent-skills-sync"
-echo "agent-skills: profile.d hook at /etc/profile.d/agent-skills.sh"
-echo "agent-skills: done"
+echo "agent-skills: done (no profile.d hook — call sync from postStartCommand)"

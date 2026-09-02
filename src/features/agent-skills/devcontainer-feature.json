@@ -1,8 +1,8 @@
 {
   "id": "agent-skills",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "name": "Agent Skills",
-  "description": "Install agent skills globally via npx skills (vercel-labs/skills). Ships a runtime sync script that uses git clone with gh auth fallback for private repos, creates a proper lock file for npx skills update, and per-agent symlinks. GitHub-agnostic — the devcontainer ensures gh is authed before sync runs.",
+  "description": "Install agent skills globally via npx skills (vercel-labs/skills). Ships a runtime sync script (call from postStartCommand) that uses git clone with gh auth fallback for private repos, creates a proper lock file for npx skills update, and per-agent symlinks. No profile.d hook — does not run on every login shell.",
   "documentationURL": "https://github.com/docker-x/devcontainers#agent-skills",
   "keywords": [
     "ai",
