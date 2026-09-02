@@ -389,6 +389,22 @@ else
   echo "entrypoint: paseo not found, skipping Paseo daemon"
 fi
 
+# --- Start Caddy proxy (if caddy-proxy feature is present) ---
+CADDY_PID=""
+if command -v caddy &> /dev/null; then
+  CADDY_CONFIG_DIR="${CADDY_CONFIG_DIR:-/usr/local/share/caddy-proxy}"
+  CADDYFILE="${CADDYFILE:-$CADDY_CONFIG_DIR/Caddyfile}"
+  if [[ -f "$CADDYFILE" ]]; then
+    echo "entrypoint: starting Caddy proxy on :${CADDY_LISTEN_PORT:-3000}"
+    caddy run --config "$CADDYFILE" --adapter caddyfile 2>&1 &
+    CADDY_PID=$!
+  else
+    echo "entrypoint: caddy found but no Caddyfile at $CADDYFILE, skipping"
+  fi
+else
+  echo "entrypoint: caddy not found, skipping Caddy proxy"
+fi
+
 # --- Start SSH server ---
 echo "entrypoint: starting SSH server on port ${SSHPORT:-2222}"
 /usr/sbin/sshd -D -e \
@@ -403,9 +419,13 @@ if [[ $# -gt 0 ]]; then
   exec "$@"
 fi
 
-# Wait for sshd (and paseo if running) to keep container alive
-if [[ -n "$PASEO_PID" ]]; then
+# Wait for sshd (and paseo/caddy if running) to keep container alive
+if [[ -n "$PASEO_PID" ]] && [[ -n "$CADDY_PID" ]]; then
+  wait -n "$SSHD_PID" "$PASEO_PID" "$CADDY_PID"
+elif [[ -n "$PASEO_PID" ]]; then
   wait -n "$SSHD_PID" "$PASEO_PID"
+elif [[ -n "$CADDY_PID" ]]; then
+  wait -n "$SSHD_PID" "$CADDY_PID"
 else
   wait -n "$SSHD_PID"
 fi
