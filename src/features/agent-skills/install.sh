@@ -262,7 +262,7 @@ if ! _lock_valid; then
       fi
     done
   else
-    echo "agent-skills: npx not ready, skipping install (will retry next login)"
+    echo "agent-skills: npx not ready, skipping install (will retry on next sync)"
   fi
 fi
 
@@ -306,6 +306,15 @@ chmod 0755 /usr/local/bin/agent-skills-sync
 # utility. Consumers should call it from postStartCommand or a similar
 # once-per-container-start hook, NOT from a per-shell profile.d hook.
 # ---------------------------------------------------------------------------
+
+# Clean up legacy hooks from older versions of this feature (≤1.2.0).
+# Without this, upgrading the feature on a persistent filesystem leaves the
+# old profile.d script and bash.bashrc line in place, so login shells
+# (including tmux sessions) continue re-running the sync.
+rm -f /etc/profile.d/agent-skills.sh
+if [ -f /etc/bash.bashrc ]; then
+  sed -i '/agent-skills\.sh/d' /etc/bash.bashrc
+fi
 
 echo "agent-skills: runtime sync script at /usr/local/bin/agent-skills-sync"
 echo "agent-skills: done (no profile.d hook — call sync from postStartCommand)"
