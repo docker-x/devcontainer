@@ -168,14 +168,16 @@ merge_into_toml() {
         fi
 
         # Skip if server already configured — check both quoted and unquoted forms.
+        # Use -x for exact full-line match (not substring) to avoid false positives
+        # from comments or string values containing the header pattern.
         # The quoted form ([mcp_servers."name"]) handles all valid TOML keys;
         # the unquoted form ([mcp_servers.name]) is the common case for simple keys.
-        if grep -qF "[mcp_servers.$toml_key]" "$config_file" 2>/dev/null; then
+        if grep -qxF "[mcp_servers.$toml_key]" "$config_file" 2>/dev/null; then
             return 0
         fi
         # Also check unquoted bare-key form for simple names (A-Za-z0-9_-)
         if printf '%s' "$server_name" | grep -qE '^[A-Za-z0-9_-]+$' && \
-           grep -qF "[mcp_servers.$server_name]" "$config_file" 2>/dev/null; then
+           grep -qxF "[mcp_servers.$server_name]" "$config_file" 2>/dev/null; then
             return 0
         fi
 
@@ -316,6 +318,8 @@ chmod +x /usr/local/bin/configure-mcp.sh
 # so the environment export alone is not sufficient. The env var remains as
 # an override for runtime customization.
 CONFIG_DIR="${AGENT_CONFIG_DIR:-/usr/local/share/agent-config}"
+mkdir -p "$CONFIG_DIR"
+rm -f "$CONFIG_DIR/mcp-registry-path.env"
 printf 'MCP_SERVERS_REGISTRY_DEFAULT=%q\n' "$REGISTRY_PATH" > "$CONFIG_DIR/mcp-registry-path.env"
 
 # Make registry path available in login shells (use printf %q for safe quoting)
@@ -324,9 +328,11 @@ printf 'export MCP_SERVERS_REGISTRY_PATH=%q\n' "$REGISTRY_PATH" > /etc/profile.d
 chmod +x /etc/profile.d/mcp-servers.sh
 
 # Also set in /etc/environment for non-login shells (match full assignment to
-# avoid false positives from comments or similarly named variables)
+# avoid false positives from comments or similarly named variables).
+# Note: /etc/environment is parsed by PAM's pam_env, not by a shell — it does
+# not interpret shell quoting/escaping. Use plain double-quoted values, not %q.
 if ! grep -qE '^[[:space:]]*MCP_SERVERS_REGISTRY_PATH=' /etc/environment 2>/dev/null; then
-    printf 'MCP_SERVERS_REGISTRY_PATH=%q\n' "$REGISTRY_PATH" >> /etc/environment
+    printf 'MCP_SERVERS_REGISTRY_PATH="%s"\n' "$REGISTRY_PATH" >> /etc/environment
 fi
 
 # Ensure jq is available (configure-mcp.sh depends on it)
