@@ -43,23 +43,6 @@ echo "agent-skills: skills=${SKILLS[*]}"
 echo "agent-skills: agents=${AGENTS}"
 
 # ---------------------------------------------------------------------------
-# Helper: run a command as the remote user
-# ---------------------------------------------------------------------------
-run_as_user() {
-  if [[ "$REMOTE_USER" == "root" ]]; then
-    env HOME="${HOME_DIR}" "$@"
-  else
-    local cmd_args=()
-    for arg in "$@"; do
-      cmd_args+=("$(printf '%q' "$arg")")
-    done
-    local escaped_home
-    escaped_home=$(printf '%q' "${HOME_DIR}")
-    su -s /bin/bash "$REMOTE_USER" -c "export HOME=${escaped_home}; exec ${cmd_args[*]}"
-  fi
-}
-
-# ---------------------------------------------------------------------------
 # Build-time: install PUBLIC skills to system-wide store (fallback)
 # npx skills uses git clone — public repos work without auth.
 # If GH_TOKEN is set in the environment, git picks it up automatically.
@@ -71,6 +54,7 @@ chown "${REMOTE_USER}:${REMOTE_USER}" "$SKILLS_STORE" 2>/dev/null || true
 # To install to the system store (outside PVC), use a temporary HOME.
 BUILD_HOME="${SKILLS_STORE}/.build-home"
 mkdir -p "$BUILD_HOME"
+chown "${REMOTE_USER}:${REMOTE_USER}" "$BUILD_HOME" 2>/dev/null || true
 
 if [[ ${#SKILLS[@]} -gt 0 ]]; then
   for pkg in "${SKILLS[@]}"; do
@@ -84,7 +68,11 @@ if [[ ${#SKILLS[@]} -gt 0 ]]; then
         echo "agent-skills: build-time install failed for ${pkg} (likely private — will retry at runtime)"
       }
     else
-      su -s /bin/bash "$REMOTE_USER" -c "export HOME='$BUILD_HOME'; npx -y skills add '$pkg' -g -a devin --copy -y" 2>&1 || {
+      # Escape variables to prevent command injection via pkg names with
+      # shell metacharacters. printf %q produces a safely-quoted string.
+      escaped_home=$(printf '%q' "$BUILD_HOME")
+      escaped_pkg=$(printf '%q' "$pkg")
+      su -s /bin/bash "$REMOTE_USER" -c "export HOME=${escaped_home}; npx -y skills add ${escaped_pkg} -g -a devin --copy -y" 2>&1 || {
         echo "agent-skills: build-time install failed for ${pkg} (likely private — will retry at runtime)"
       }
     fi
@@ -93,7 +81,12 @@ fi
 
 # Move installed skills from build home to the system store root
 if [[ -d "${BUILD_HOME}/.agents/skills" ]]; then
-  cp -r "${BUILD_HOME}/.agents/skills/." "${SKILLS_STORE}/" 2>/dev/null || true
+  if cp -r "${BUILD_HOME}/.agents/skills/." "${SKILLS_STORE}/" 2>/dev/null; then
+    rm -rf "$BUILD_HOME"
+  else
+    echo "agent-skills: warning: copy from build home failed, keeping build home for inspection"
+  fi
+else
   rm -rf "$BUILD_HOME"
 fi
 
@@ -203,6 +196,8 @@ _lock_valid() {
   [ -f "\$LOCK_FILE" ] || return 1
   # Old feature wrote just "2" — not valid for npx skills
   grep -q '"version"' "\$LOCK_FILE" 2>/dev/null || return 1
+  # Verify the lock file version is actually 3
+  grep -q '"version"[[:space:]]*:[[:space:]]*3' "\$LOCK_FILE" 2>/dev/null || return 1
   _count=\$(grep -c '"sourceType"' "\$LOCK_FILE" 2>/dev/null || echo 0)
   [ "\$_count" -gt 0 ]
 }
@@ -217,23 +212,23 @@ fi
 
 # --- 2. Install skills if not already done ---
 if ! _lock_valid; then
-  if command -v npx >/dev/null 2>&1 && command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  if command -v npx >/dev/null 2>&1; then
     echo "agent-skills: installing skills via npx skills add -g (first run)..."
-    mkdir -p "\$AGENTS_DIR"
+    mkdir -p "\$AGENTS_DIR" 2>/dev/null || true
     # Remove stale fallback symlink so npx skills installs to real PVC dir
     if [ -L "\$SKILLS_DIR" ]; then
       rm -f "\$SKILLS_DIR"
     fi
-    mkdir -p "\$SKILLS_DIR" 2>/dev/null
+    mkdir -p "\$SKILLS_DIR" 2>/dev/null || true
     for repo in \$SKILLS_REPOS; do
-      if npx -y skills add "\$repo" -g -a devin -y 2>/dev/null; then
+      if npx -y skills add "\$repo" -g -a devin -y; then
         echo "agent-skills: installed \$repo"
       else
         echo "agent-skills: failed to install \$repo (skipping)"
       fi
     done
   else
-    echo "agent-skills: npx or gh not ready, skipping install (will retry next login)"
+    echo "agent-skills: npx not ready, skipping install (will retry next login)"
   fi
 fi
 
@@ -241,7 +236,7 @@ fi
 # If no PVC skills dir, link to system store (but only if it has real skills)
 # This is a fallback — does NOT create lock file, so later runs with auth can retry
 if [ ! -e "\$SKILLS_DIR" ] && _has_skills "\$AGENT_SKILLS_STORE"; then
-  mkdir -p "\$AGENTS_DIR" 2>/dev/null
+  mkdir -p "\$AGENTS_DIR" 2>/dev/null || true
   ln -sfn "\$AGENT_SKILLS_STORE" "\$SKILLS_DIR"
 fi
 
@@ -250,7 +245,7 @@ _agent_skills_link() {
   _target="\$_H/\$1"
   _parent="\$(dirname "\$_target")"
   if [ ! -e "\$_target" ]; then
-    mkdir -p "\$_parent" 2>/dev/null
+    mkdir -p "\$_parent" 2>/dev/null || true
     # Link to ~/.agents/skills if it has skills, else to system store
     if _has_skills "\$SKILLS_DIR"; then
       ln -sfn "\$SKILLS_DIR" "\$_target"
