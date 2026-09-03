@@ -38,8 +38,11 @@ for candidate in \
 done
 
 if [ -n "$_BUILD_REGISTRY" ]; then
-    cp "$_BUILD_REGISTRY" "$CONFIG_DIR/mcp-servers.json"
-    echo "MCP Servers Registry: copied $_BUILD_REGISTRY → $CONFIG_DIR/mcp-servers.json"
+    if cp "$_BUILD_REGISTRY" "$CONFIG_DIR/mcp-servers.json"; then
+        echo "MCP Servers Registry: copied $_BUILD_REGISTRY → $CONFIG_DIR/mcp-servers.json"
+    else
+        echo "MCP Servers Registry: ERROR - failed to copy $_BUILD_REGISTRY to $CONFIG_DIR/mcp-servers.json" >&2
+    fi
 else
     echo "MCP Servers Registry: registry file '$REGISTRY_PATH' not found at build time"
     echo "  configure-mcp.sh will look for it at runtime relative to the workspace"
