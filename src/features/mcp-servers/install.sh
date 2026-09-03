@@ -18,6 +18,13 @@ REGISTRY_PATH="${REGISTRYPATH:-.devcontainer/mcp-servers.json}"
 
 echo "Installing MCP Servers Registry applier..."
 
+# AGENT_CONFIG_DIR is the shared config directory where the consuming
+# project's Dockerfile can COPY the registry file at build time:
+#   COPY .devcontainer/mcp-servers.json /usr/local/share/agent-config/mcp-servers.json
+# configure-mcp.sh checks this location as a fallback at runtime.
+CONFIG_DIR="${AGENT_CONFIG_DIR:-/usr/local/share/agent-config}"
+mkdir -p "$CONFIG_DIR"
+
 # Install configure-mcp.sh to /usr/local/bin
 rm -f /usr/local/bin/configure-mcp.sh
 cat > /usr/local/bin/configure-mcp.sh << 'APPLIER_EOF'
@@ -60,19 +67,28 @@ export HOME="$_H"
 REGISTRY_PATH="${MCP_SERVERS_REGISTRY_PATH:-.devcontainer/mcp-servers.json}"
 WORKSPACE_FOLDER="${WORKSPACE_FOLDER:-${PWD}}"
 
-# Resolve registry path: try as-is, then relative to workspace folder
+# Source the build-time registry path if available (written by install.sh)
+_AGENT_CONFIG_DIR="${AGENT_CONFIG_DIR:-/usr/local/share/agent-config}"
+if [ -f "$_AGENT_CONFIG_DIR/mcp-registry-path.env" ]; then
+    . "$_AGENT_CONFIG_DIR/mcp-registry-path.env"
+    if [ -n "${MCP_SERVERS_REGISTRY_DEFAULT:-}" ]; then
+        REGISTRY_PATH="${MCP_SERVERS_REGISTRY_PATH:-$MCP_SERVERS_REGISTRY_DEFAULT}"
+    fi
+fi
+
+# Resolve registry path: try workspace-specific paths first, then fall back
+# to the baked-in registry in AGENT_CONFIG_DIR (always available in the image).
 resolve_registry() {
-    # If absolute path, use it directly
+    # 1. If absolute path, use it directly (but fall through if missing)
     case "$REGISTRY_PATH" in
         /*)
             if [ -f "$REGISTRY_PATH" ]; then
                 echo "$REGISTRY_PATH"
                 return 0
             fi
-            return 1
             ;;
     esac
-    # Try workspace folder first, then CWD-relative
+    # 2. Try workspace folder first, then CWD-relative
     local candidates=(
         "$WORKSPACE_FOLDER/$REGISTRY_PATH"
         "$REGISTRY_PATH"
@@ -83,6 +99,12 @@ resolve_registry() {
             return 0
         fi
     done
+    # 3. Fall back to baked-in registry (COPY'd by consuming Dockerfile)
+    local baked="${AGENT_CONFIG_DIR:-/usr/local/share/agent-config}/mcp-servers.json"
+    if [ -f "$baked" ]; then
+        echo "$baked"
+        return 0
+    fi
     return 1
 }
 
