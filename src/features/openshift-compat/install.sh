@@ -411,7 +411,8 @@ fi
 if [[ -x /usr/local/bin/configure-mcp.sh ]]; then
   export HOME="/home/vscode"
   echo "entrypoint: configuring MCP servers"
-  /usr/local/bin/configure-mcp.sh >> /home/vscode/.configure-mcp.log 2>&1 || true
+  # Log to /tmp (always writable) — /home/vscode may not be writable yet
+  /usr/local/bin/configure-mcp.sh >> /tmp/.configure-mcp.log 2>&1 || true
 fi
 
 # --- Start SSH server ---
