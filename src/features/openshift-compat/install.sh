@@ -408,11 +408,14 @@ fi
 # --- Configure MCP servers (if mcp-servers feature is present) ---
 # Runs configure-mcp.sh after PVC mount and home setup, before SSH starts.
 # Idempotent — safe to run on every container start.
+# Uses env (not export) so HOME doesn't leak to subsequent processes.
 if [[ -x /usr/local/bin/configure-mcp.sh ]]; then
-  export HOME="/home/vscode"
   echo "entrypoint: configuring MCP servers"
-  # Log to /tmp (always writable) — /home/vscode may not be writable yet
-  /usr/local/bin/configure-mcp.sh >> /tmp/.configure-mcp.log 2>&1 || true
+  # configure-mcp.sh falls back to the baked registry in AGENT_CONFIG_DIR,
+  # so WORKSPACE_FOLDER isn't required. Set it for completeness if home exists.
+  WORKSPACE_FOLDER="${WORKSPACE_FOLDER:-/home/vscode/workspace}" \
+  HOME=/home/vscode \
+  /usr/local/bin/configure-mcp.sh 2>&1 | tee -a /tmp/.configure-mcp.log || true
 fi
 
 # --- Start SSH server ---
