@@ -18,6 +18,33 @@ REGISTRY_PATH="${REGISTRYPATH:-.devcontainer/mcp-servers.json}"
 
 echo "Installing MCP Servers Registry applier..."
 
+# Copy the registry file into the image at build time so it's available
+# at runtime regardless of which workspace/project is active. The file
+# is copied to AGENT_CONFIG_DIR (shared config directory).
+CONFIG_DIR="${AGENT_CONFIG_DIR:-/usr/local/share/agent-config}"
+mkdir -p "$CONFIG_DIR"
+
+# Try to find and copy the registry file from the build context
+_BUILD_REGISTRY=""
+for candidate in \
+    "$_DEVCONTAINER_BUILD_CONTEXT/$REGISTRY_PATH" \
+    "$_REMOTE_USER_HOME/$REGISTRY_PATH" \
+    "$PWD/$REGISTRY_PATH" \
+    "$REGISTRY_PATH"; do
+    if [ -f "$candidate" ]; then
+        _BUILD_REGISTRY="$candidate"
+        break
+    fi
+done
+
+if [ -n "$_BUILD_REGISTRY" ]; then
+    cp "$_BUILD_REGISTRY" "$CONFIG_DIR/mcp-servers.json"
+    echo "MCP Servers Registry: copied $_BUILD_REGISTRY → $CONFIG_DIR/mcp-servers.json"
+else
+    echo "MCP Servers Registry: registry file '$REGISTRY_PATH' not found at build time"
+    echo "  configure-mcp.sh will look for it at runtime relative to the workspace"
+fi
+
 # Install configure-mcp.sh to /usr/local/bin
 rm -f /usr/local/bin/configure-mcp.sh
 cat > /usr/local/bin/configure-mcp.sh << 'APPLIER_EOF'
@@ -60,9 +87,16 @@ export HOME="$_H"
 REGISTRY_PATH="${MCP_SERVERS_REGISTRY_PATH:-.devcontainer/mcp-servers.json}"
 WORKSPACE_FOLDER="${WORKSPACE_FOLDER:-${PWD}}"
 
-# Resolve registry path: try as-is, then relative to workspace folder
+# Resolve registry path: check AGENT_CONFIG_DIR first (baked at build time),
+# then try the configured path relative to workspace folder and CWD.
 resolve_registry() {
-    # If absolute path, use it directly
+    # 1. Check AGENT_CONFIG_DIR for a baked-in registry (always available)
+    local baked="${AGENT_CONFIG_DIR:-/usr/local/share/agent-config}/mcp-servers.json"
+    if [ -f "$baked" ]; then
+        echo "$baked"
+        return 0
+    fi
+    # 2. If absolute path, use it directly
     case "$REGISTRY_PATH" in
         /*)
             if [ -f "$REGISTRY_PATH" ]; then
@@ -72,7 +106,7 @@ resolve_registry() {
             return 1
             ;;
     esac
-    # Try workspace folder first, then CWD-relative
+    # 3. Try workspace folder first, then CWD-relative
     local candidates=(
         "$WORKSPACE_FOLDER/$REGISTRY_PATH"
         "$REGISTRY_PATH"
