@@ -405,6 +405,15 @@ else
   echo "entrypoint: caddy not found, skipping Caddy proxy"
 fi
 
+# --- Configure MCP servers (if mcp-servers feature is present) ---
+# Runs configure-mcp.sh after PVC mount and home setup, before SSH starts.
+# Idempotent — safe to run on every container start.
+if [[ -x /usr/local/bin/configure-mcp.sh ]]; then
+  export HOME="/home/vscode"
+  echo "entrypoint: configuring MCP servers"
+  /usr/local/bin/configure-mcp.sh >> /home/vscode/.configure-mcp.log 2>&1 || true
+fi
+
 # --- Start SSH server ---
 echo "entrypoint: starting SSH server on port ${SSHPORT:-2222}"
 /usr/sbin/sshd -D -e \
