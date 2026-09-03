@@ -18,36 +18,12 @@ REGISTRY_PATH="${REGISTRYPATH:-.devcontainer/mcp-servers.json}"
 
 echo "Installing MCP Servers Registry applier..."
 
-# Copy the registry file into the image at build time so it's available
-# at runtime regardless of which workspace/project is active. The file
-# is copied to AGENT_CONFIG_DIR (shared config directory).
+# AGENT_CONFIG_DIR is the shared config directory where the consuming
+# project's Dockerfile can COPY the registry file at build time:
+#   COPY .devcontainer/mcp-servers.json /usr/local/share/agent-config/mcp-servers.json
+# configure-mcp.sh checks this location as a fallback at runtime.
 CONFIG_DIR="${AGENT_CONFIG_DIR:-/usr/local/share/agent-config}"
 mkdir -p "$CONFIG_DIR"
-
-# Try to find and copy the registry file from the build context
-_BUILD_REGISTRY=""
-for candidate in \
-    "$_DEVCONTAINER_BUILD_CONTEXT/$REGISTRY_PATH" \
-    "$_REMOTE_USER_HOME/$REGISTRY_PATH" \
-    "$PWD/$REGISTRY_PATH" \
-    "$REGISTRY_PATH"; do
-    if [ -f "$candidate" ]; then
-        _BUILD_REGISTRY="$candidate"
-        break
-    fi
-done
-
-if [ -n "$_BUILD_REGISTRY" ]; then
-    if cp "$_BUILD_REGISTRY" "$CONFIG_DIR/mcp-servers.json"; then
-        chmod 644 "$CONFIG_DIR/mcp-servers.json"
-        echo "MCP Servers Registry: copied $_BUILD_REGISTRY → $CONFIG_DIR/mcp-servers.json"
-    else
-        echo "MCP Servers Registry: ERROR - failed to copy $_BUILD_REGISTRY to $CONFIG_DIR/mcp-servers.json" >&2
-    fi
-else
-    echo "MCP Servers Registry: registry file '$REGISTRY_PATH' not found at build time"
-    echo "  configure-mcp.sh will look for it at runtime relative to the workspace"
-fi
 
 # Install configure-mcp.sh to /usr/local/bin
 rm -f /usr/local/bin/configure-mcp.sh
@@ -88,20 +64,28 @@ _H="${HOME:-$HOME_FALLBACK}"
 [ "$_H" = "/" ] && _H="$HOME_FALLBACK"
 export HOME="$_H"
 
-REGISTRY_PATH="${MCP_SERVERS_REGISTRY_PATH:-__REGISTRY_PATH_DEFAULT__}"
+REGISTRY_PATH="${MCP_SERVERS_REGISTRY_PATH:-.devcontainer/mcp-servers.json}"
 WORKSPACE_FOLDER="${WORKSPACE_FOLDER:-${PWD}}"
+
+# Source the build-time registry path if available (written by install.sh)
+_AGENT_CONFIG_DIR="${AGENT_CONFIG_DIR:-/usr/local/share/agent-config}"
+if [ -f "$_AGENT_CONFIG_DIR/mcp-registry-path.env" ]; then
+    . "$_AGENT_CONFIG_DIR/mcp-registry-path.env"
+    if [ -n "${MCP_SERVERS_REGISTRY_DEFAULT:-}" ]; then
+        REGISTRY_PATH="${MCP_SERVERS_REGISTRY_PATH:-$MCP_SERVERS_REGISTRY_DEFAULT}"
+    fi
+fi
 
 # Resolve registry path: try workspace-specific paths first, then fall back
 # to the baked-in registry in AGENT_CONFIG_DIR (always available in the image).
 resolve_registry() {
-    # 1. If absolute path, use it directly
+    # 1. If absolute path, use it directly (but fall through if missing)
     case "$REGISTRY_PATH" in
         /*)
             if [ -f "$REGISTRY_PATH" ]; then
                 echo "$REGISTRY_PATH"
                 return 0
             fi
-            return 1
             ;;
     esac
     # 2. Try workspace folder first, then CWD-relative
@@ -115,7 +99,7 @@ resolve_registry() {
             return 0
         fi
     done
-    # 3. Fall back to baked-in registry (always available in the image)
+    # 3. Fall back to baked-in registry (COPY'd by consuming Dockerfile)
     local baked="${AGENT_CONFIG_DIR:-/usr/local/share/agent-config}/mcp-servers.json"
     if [ -f "$baked" ]; then
         echo "$baked"
@@ -355,11 +339,6 @@ echo "configure-mcp: done"
 APPLIER_EOF
 
 chmod +x /usr/local/bin/configure-mcp.sh
-
-# Substitute the build-time registry path into configure-mcp.sh.
-# The heredoc is quoted so we use sed to replace the placeholder.
-# Use | as delimiter since the path may contain /.
-sed -i "s|__REGISTRY_PATH_DEFAULT__|$REGISTRY_PATH|g" /usr/local/bin/configure-mcp.sh
 
 # Write the default registry path to an env file that configure-mcp.sh sources.
 # This avoids sed-based string interpolation (vulnerable to delimiter/injection
