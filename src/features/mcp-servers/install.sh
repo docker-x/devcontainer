@@ -352,8 +352,20 @@ rm -f "$CONFIG_DIR/mcp-registry-path.env"
 printf 'MCP_SERVERS_REGISTRY_DEFAULT=%q\n' "$REGISTRY_PATH" > "$CONFIG_DIR/mcp-registry-path.env"
 
 # Make registry path available in login shells (use printf %q for safe quoting)
+# Also run configure-mcp.sh on first login shell so MCP servers are configured
+# automatically without requiring a postStartCommand (which not all providers
+# translate to K8s lifecycle hooks). configure-mcp.sh is idempotent.
 rm -f /etc/profile.d/mcp-servers.sh
-printf 'export MCP_SERVERS_REGISTRY_PATH=%q\n' "$REGISTRY_PATH" > /etc/profile.d/mcp-servers.sh
+cat > /etc/profile.d/mcp-servers.sh << 'PROFILE_EOF'
+# Export registry path for configure-mcp.sh
+export MCP_SERVERS_REGISTRY_PATH="${MCP_SERVERS_REGISTRY_PATH:-.devcontainer/mcp-servers.json}"
+
+# Run configure-mcp.sh on login shells (idempotent — safe to run multiple times).
+# Silently skip if configure-mcp.sh or jq is missing.
+if [ -x /usr/local/bin/configure-mcp.sh ] && command -v jq >/dev/null 2>&1; then
+    /usr/local/bin/configure-mcp.sh >/dev/null 2>&1 || true
+fi
+PROFILE_EOF
 chmod +x /etc/profile.d/mcp-servers.sh
 
 # Also set in /etc/environment for non-login shells (match full assignment to
