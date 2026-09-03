@@ -39,6 +39,7 @@ done
 
 if [ -n "$_BUILD_REGISTRY" ]; then
     if cp "$_BUILD_REGISTRY" "$CONFIG_DIR/mcp-servers.json"; then
+        chmod 644 "$CONFIG_DIR/mcp-servers.json"
         echo "MCP Servers Registry: copied $_BUILD_REGISTRY → $CONFIG_DIR/mcp-servers.json"
     else
         echo "MCP Servers Registry: ERROR - failed to copy $_BUILD_REGISTRY to $CONFIG_DIR/mcp-servers.json" >&2
@@ -87,19 +88,13 @@ _H="${HOME:-$HOME_FALLBACK}"
 [ "$_H" = "/" ] && _H="$HOME_FALLBACK"
 export HOME="$_H"
 
-REGISTRY_PATH="${MCP_SERVERS_REGISTRY_PATH:-.devcontainer/mcp-servers.json}"
+REGISTRY_PATH="${MCP_SERVERS_REGISTRY_PATH:-__REGISTRY_PATH_DEFAULT__}"
 WORKSPACE_FOLDER="${WORKSPACE_FOLDER:-${PWD}}"
 
-# Resolve registry path: check AGENT_CONFIG_DIR first (baked at build time),
-# then try the configured path relative to workspace folder and CWD.
+# Resolve registry path: try workspace-specific paths first, then fall back
+# to the baked-in registry in AGENT_CONFIG_DIR (always available in the image).
 resolve_registry() {
-    # 1. Check AGENT_CONFIG_DIR for a baked-in registry (always available)
-    local baked="${AGENT_CONFIG_DIR:-/usr/local/share/agent-config}/mcp-servers.json"
-    if [ -f "$baked" ]; then
-        echo "$baked"
-        return 0
-    fi
-    # 2. If absolute path, use it directly
+    # 1. If absolute path, use it directly
     case "$REGISTRY_PATH" in
         /*)
             if [ -f "$REGISTRY_PATH" ]; then
@@ -109,7 +104,7 @@ resolve_registry() {
             return 1
             ;;
     esac
-    # 3. Try workspace folder first, then CWD-relative
+    # 2. Try workspace folder first, then CWD-relative
     local candidates=(
         "$WORKSPACE_FOLDER/$REGISTRY_PATH"
         "$REGISTRY_PATH"
@@ -120,6 +115,12 @@ resolve_registry() {
             return 0
         fi
     done
+    # 3. Fall back to baked-in registry (always available in the image)
+    local baked="${AGENT_CONFIG_DIR:-/usr/local/share/agent-config}/mcp-servers.json"
+    if [ -f "$baked" ]; then
+        echo "$baked"
+        return 0
+    fi
     return 1
 }
 
@@ -354,6 +355,11 @@ echo "configure-mcp: done"
 APPLIER_EOF
 
 chmod +x /usr/local/bin/configure-mcp.sh
+
+# Substitute the build-time registry path into configure-mcp.sh.
+# The heredoc is quoted so we use sed to replace the placeholder.
+# Use | as delimiter since the path may contain /.
+sed -i "s|__REGISTRY_PATH_DEFAULT__|$REGISTRY_PATH|g" /usr/local/bin/configure-mcp.sh
 
 # Write the default registry path to an env file that configure-mcp.sh sources.
 # This avoids sed-based string interpolation (vulnerable to delimiter/injection
