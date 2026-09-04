@@ -1,6 +1,6 @@
 {
   "id": "openshift-compat",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "name": "OpenShift Compatibility",
   "description": "Make devcontainer images compatible with OpenShift restricted SCC: SSH server, random UID support, fake sudo, group-writable home, entrypoint with Paseo startup.",
   "keywords": [
